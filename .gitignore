@@ -2,3 +2,5 @@ tstry/
 node_modules/
 build/
 *.bin
+setup.sh
+settings.js

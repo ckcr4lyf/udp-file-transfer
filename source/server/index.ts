@@ -5,6 +5,7 @@ import { MESSAGES } from '../common/constants';
 import UDPHeader from '../common/udpHeader';
 import { performance } from 'perf_hooks';
 import { sleep } from '../common/utilities';
+import { SETTINGS } from '../../settings';
 
 export default class Server {
 
@@ -70,9 +71,9 @@ export default class Server {
             const packet = Buffer.concat([responseHeader.asBinary(), payload]);
             // console.log(packet);
             this.socket.send(packet, rinfo.port, rinfo.address);
-            if (i % 100 === 0){
+            if (i % SETTINGS.SEND_INTERVAL_COUNT === 0){
                 //Artificial sleep
-                await sleep(20);
+                await sleep(SETTINGS.SEND_INTERVAL_TIME);
             }
         }
 

@@ -2,6 +2,7 @@ import UDPHeader from "../common/udpHeader";
 import { MESSAGES } from '../common/constants';
 import dgram from 'dgram';
 import { message } from "../common/interfaces";
+import { SETTINGS } from "../../settings";
 
 const TIME_LIMIT = 5000;
 
@@ -36,7 +37,7 @@ export default class Peer {
         console.log(`Prepared packet`, packet);
         this.lastRequest = { header, payload };
         this.socket.send(packet, this.serverPort, this.serverAddress);
-        this.timeout = setTimeout(this.handleTimeout, TIME_LIMIT);
+        this.timeout = setTimeout(this.handleTimeout, SETTINGS.PEER_RECV_TIMEOUT);
     }
 
     handleTimeout = () => {
