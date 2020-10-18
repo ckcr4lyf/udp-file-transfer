@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { MESSAGES } from '../common/constants';
 import UDPHeader from '../common/udpHeader';
+import { performance } from 'perf_hooks';
 
 export default class Server {
 
@@ -59,13 +60,14 @@ export default class Server {
         }
 
         console.log(`We have ${fullPackets} full sized packets, and leftover packet of size ${leftoverSize}`);
+        const t1 = performance.now();
 
         for (let i = 0; i < fullPackets; i++){
             const position = i * 1400;
             const payload = file.slice(position, position + 1400);
             const responseHeader = new UDPHeader(header.messageNumber + 1, i + 1, totalPackets, MESSAGES.FILE_DOWNLOAD_CONTENTS, 0x00, 1400);
             const packet = Buffer.concat([responseHeader.asBinary(), payload]);
-            console.log(packet);
+            // console.log(packet);
             this.socket.send(packet, rinfo.port, rinfo.address);
         }
 
@@ -74,8 +76,11 @@ export default class Server {
             const payload = file.slice(position, position + leftoverSize);
             const responseHeader = new UDPHeader(header.messageNumber + 1, totalPackets, totalPackets, MESSAGES.FILE_DOWNLOAD_CONTENTS, 0x00, leftoverSize);
             const packet = Buffer.concat([responseHeader.asBinary(), payload]);
-            console.log(packet);
+            // console.log(packet);
             this.socket.send(packet, rinfo.port, rinfo.address);
         }
+
+        const duration = performance.now() - t1;
+        console.log(`Sent ${totalPackets} packets totalling ${size} bytes in ${duration.toFixed(2)}ms.`);
     }
 }

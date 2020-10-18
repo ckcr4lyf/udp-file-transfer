@@ -52,7 +52,7 @@ export default class Peer {
     }
 
     handleMessage = (msg: Buffer, rinfo: dgram.RemoteInfo) => {
-        console.log(`Incoming message from ${rinfo.address}:${rinfo.port}`);
+        // console.log(`Incoming message from ${rinfo.address}:${rinfo.port}`);
         const header = UDPHeader.fromBinary(msg.slice(0, 10));
 
         if (this.lastRequest && (this.lastRequest.header.messageNumber + 1 === header.messageNumber)){
@@ -63,9 +63,6 @@ export default class Peer {
     }
 
     assembleFile = () => {
-
-        //We have some (or all) data in recvMessages[]
-        //We have info like filesize in it?
         const totalPackets = this.recvMessages[0].header.totalPackets;
         const buffer = Buffer.alloc(totalPackets * 1400);
         let minCopied = 1400;
@@ -76,7 +73,7 @@ export default class Peer {
         for (let i = 0; i < this.recvMessages.length; i++){
             const position = i * 1400;
             const bytesCopied = this.recvMessages[i].payload.copy(buffer, position, 0);
-            console.log(`Copied ${bytesCopied} bytes for packet #${this.recvMessages[i].header.packetNumber}`);
+            // console.log(`Copied ${bytesCopied} bytes for packet #${this.recvMessages[i].header.packetNumber}`);
             if (bytesCopied < 1400){
                 minCopied = bytesCopied;
             }
