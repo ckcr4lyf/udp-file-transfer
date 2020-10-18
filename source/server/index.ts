@@ -4,6 +4,7 @@ import fs from 'fs';
 import { MESSAGES } from '../common/constants';
 import UDPHeader from '../common/udpHeader';
 import { performance } from 'perf_hooks';
+import { sleep } from '../common/utilities';
 
 export default class Server {
 
@@ -41,7 +42,7 @@ export default class Server {
         }
     }
 
-    handleFileDowload = (msg: Buffer, header: UDPHeader, rinfo: dgram.RemoteInfo) => {
+    handleFileDowload = async (msg: Buffer, header: UDPHeader, rinfo: dgram.RemoteInfo) => {
         const filename = msg.slice(10, 10 + header.dataLength);
         const filepath = path.join(this.root, filename.toString());
         // console.log(filepath);
@@ -69,6 +70,10 @@ export default class Server {
             const packet = Buffer.concat([responseHeader.asBinary(), payload]);
             // console.log(packet);
             this.socket.send(packet, rinfo.port, rinfo.address);
+            if (i % 100 === 0){
+                //Artificial sleep
+                await sleep(20);
+            }
         }
 
         if (leftoverSize !== 0){
