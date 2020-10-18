@@ -3,6 +3,7 @@ import { MESSAGES } from '../common/constants';
 import dgram from 'dgram';
 import { message } from "../common/interfaces";
 import { SETTINGS } from "../../settings";
+import { performance } from 'perf_hooks';
 
 const TIME_LIMIT = 5000;
 
@@ -14,12 +15,16 @@ export default class Peer {
     public timeout: null | NodeJS.Timeout;
     public lastRequest: null | message;
     public recvMessages: message[];
+    public sentAt: number;
+    public recvAt: number;
 
     constructor(serverAddress: string, serverPort: number) {
         this.serverAddress = serverAddress;
         this.serverPort = serverPort;
         this.socket = dgram.createSocket('udp4');
         this.socket.on('message', this.handleMessage);
+        this.sentAt = 0;
+        this.recvAt = 0;
         this.timeout = null;
         this.lastRequest = null;
         this.recvMessages = [];
@@ -37,6 +42,7 @@ export default class Peer {
         console.log(`Prepared packet`, packet);
         this.lastRequest = { header, payload };
         this.socket.send(packet, this.serverPort, this.serverAddress);
+        this.sentAt = performance.now();
         this.timeout = setTimeout(this.handleTimeout, SETTINGS.PEER_RECV_TIMEOUT);
     }
 
@@ -68,7 +74,7 @@ export default class Peer {
         const buffer = Buffer.alloc(totalPackets * 1400);
         let minCopied = 1400;
         let percent = (this.recvMessages.length / totalPackets) * 100;
-        console.log(`Recevied ${this.recvMessages.length}/${totalPackets}! (${percent.toFixed(2)}%)`);
+        console.log(`Recevied ${this.recvMessages.length}/${totalPackets} in ${(this.recvAt - this.sentAt).toFixed(2)}ms! (${percent.toFixed(2)}%)`);
         console.log(`Filename is ${this.lastRequest?.payload.toString()}`);
 
         for (let i = 0; i < this.recvMessages.length; i++){
@@ -101,6 +107,7 @@ export default class Peer {
             };
 
             this.recvMessages.push(message);
+            this.recvAt = performance.now();
 
             if (this.recvMessages.length === header.totalPackets){
                 // console.log('Received all packets!');
