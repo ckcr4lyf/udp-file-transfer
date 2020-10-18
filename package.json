@@ -1,0 +1,15 @@
+{
+  "name": "udp-protocol",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "dependencies": {},
+  "devDependencies": {},
+  "scripts": {
+    "build": "tsc -p .",
+    "server": "ts-node source/serverTest.ts",
+    "peer": "ts-node source/peerTest.ts"
+  },
+  "author": "",
+  "license": "ISC"
+}

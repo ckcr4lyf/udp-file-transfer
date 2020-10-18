@@ -1,0 +1,4 @@
+tstry/
+node_modules/
+build/
+*.bin
