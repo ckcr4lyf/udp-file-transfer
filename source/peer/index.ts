@@ -4,6 +4,8 @@ import dgram from 'dgram';
 import { message } from "../common/interfaces";
 import { SETTINGS } from "../../settings";
 import { performance } from 'perf_hooks';
+import { timeInterval } from "../common/utilities";
+import { rejects } from "assert";
 
 const TIME_LIMIT = 5000;
 
@@ -15,33 +17,68 @@ export default class Peer {
     public timeout: null | NodeJS.Timeout;
     public lastRequest: null | message;
     public recvMessages: message[];
+    public window: message[];
     public sentAt: number;
     public recvAt: number;
+    public pingInterval: timeInterval;
+    public expected: number;
+    public toResolve: undefined | Function;
+    public toReject: undefined | Function;
 
     constructor(serverAddress: string, serverPort: number) {
         this.serverAddress = serverAddress;
         this.serverPort = serverPort;
         this.socket = dgram.createSocket('udp4');
-        this.socket.on('message', this.handleMessage);
+        this.socket.on('message', this.handleMessage); //All incoming datagrams go here
         this.sentAt = 0;
         this.recvAt = 0;
         this.timeout = null;
         this.lastRequest = null;
         this.recvMessages = [];
-        // this.socket.connect(serverPort, serverAddress);
-        // this.socket.on('connect', () => {
-        //     console.log('Connected to server!');
-        //     // this.socket.send('YOLO');
-        // })
+        this.window = [];
+        this.pingInterval = new timeInterval();
+        this.expected = -1;
     }
 
-    requestFile = (filename: string) => {
+    ping = async (): Promise<void> => {
+        return new Promise((resolve, reject) => {
+            const header = new UDPHeader(null, 0x01, 0x01, MESSAGES.PING, 0x00, 0x00);
+            const packet = Buffer.concat([header.asBinary()]);
+            this.lastRequest = { header, payload: Buffer.alloc(0) }; //So that handle message can track the expected messageNumber
+            console.log(`Sending ping!`);
+            this.pingInterval.start();
+            this.socket.send(packet, this.serverPort, this.serverAddress);
+            this.toResolve = resolve; //Magic part 1: Set a member variable to our promise resolving function
+            this.timeout = setTimeout(() => {
+                reject();
+            }, 2000);
+        });
+    }
+
+    handlePong = (header: UDPHeader) => {
+        this.pingInterval.end();
+        if (this.timeout){
+            clearTimeout(this.timeout); // So that the rejection doesnt happen
+        }
+        console.log(`Ping: ${this.pingInterval.asString()}ms`);
+
+        //Magic part 2:
+        //We had passed / set the promise resolve function to a class member
+        //So the completely separate handle function can now access it
+        //And accordingly resolve it.
+        if (this.toResolve){
+            this.toResolve();
+        }
+    }
+    
+    requestFile = async (filename: string) => {
         const header = new UDPHeader(null, 0x01, 0x01, MESSAGES.FILE_DOWNLOAD_REQUEST, 0x00, filename.length);
         const payload = Buffer.from(filename);
         const packet = Buffer.concat([header.asBinary(), payload]);
         console.log(`Prepared packet`, packet);
         this.lastRequest = { header, payload };
         this.socket.send(packet, this.serverPort, this.serverAddress);
+        this.expected = 5; //At first we expect 5 packets. (TBD?)
         this.sentAt = performance.now();
         this.timeout = setTimeout(this.handleTimeout, SETTINGS.PEER_RECV_TIMEOUT);
     }
@@ -65,8 +102,10 @@ export default class Peer {
         if (this.lastRequest && (this.lastRequest.header.messageNumber + 1 === header.messageNumber)){
             if (this.lastRequest.header.messageType === MESSAGES.FILE_DOWNLOAD_REQUEST){
                 this.handleFileResponse(msg, header, rinfo);
+            } else if (header.messageType === MESSAGES.PONG){
+                this.handlePong(header);
             }
-        }       
+        }   
     }
 
     assembleFile = () => {
@@ -100,12 +139,53 @@ export default class Peer {
             }
 
             this.lastRequest = null;
+            this.expected = 0;
         } else {
             const message: message = {
                 header: header,
                 payload: msg.slice(10)
             };
 
+            this.recvAt = performance.now();
+            this.recvMessages.push(message);
+
+            //If we got everything, dont need to wait for window.
+            if (this.recvMessages.length === header.totalPackets){
+                this.assembleFile();
+
+                //Now we clear it
+                this.lastRequest = null;
+                this.recvMessages = [];
+                this.window = [];
+                this.expected = 0;
+
+                if (this.timeout){
+                    clearTimeout(this.timeout);
+                }
+
+                return;
+            }
+
+
+            //Otherwise we wait for our window to fill up
+            this.window.push(message);
+
+            if (this.window.length === this.expected){
+                //Our window is full PogU
+                //Send the ACK?
+                console.log(`Window of size ${this.expected} is full!`);
+                this.window = []; //Our window is already in this.recvMessages
+                this.expected = this.expected * 2; //5 -> 10 -> 20...
+                const ackHeader = new UDPHeader(null, 0x01, 0x01, MESSAGES.ACK, 0x00, 0x00); //zero length ack = all good. Double it
+                //Reset timeout
+                if (this.timeout){
+                    clearTimeout(this.timeout);
+                }
+                this.timeout = setTimeout(this.handleTimeout, SETTINGS.PEER_RECV_TIMEOUT);
+                this.socket.send(ackHeader.asBinary(), this.serverPort, this.serverAddress);
+            }
+
+            /*
             this.recvMessages.push(message);
             this.recvAt = performance.now();
 
@@ -122,6 +202,7 @@ export default class Peer {
                     clearTimeout(this.timeout);
                 }
             }
+            */
         }
     }
 }
