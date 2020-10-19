@@ -118,14 +118,16 @@ export default class Peer {
 
         for (let i = 0; i < this.recvMessages.length; i++){
             const position = i * 1400;
-            const bytesCopied = this.recvMessages[i].payload.copy(buffer, position, 0);
+            this.recvMessages[i].payload.copy(buffer, position, 0);
             // console.log(`Copied ${bytesCopied} bytes for packet #${this.recvMessages[i].header.packetNumber}`);
-            if (bytesCopied < 1400){
-                minCopied = bytesCopied;
+            if (this.recvMessages[i].header.dataLength < 1400){
+                console.log(`Min copied is ${this.recvMessages[i].header.dataLength}`);
+                minCopied = this.recvMessages[i].header.dataLength;
             }
         }
 
         //We can delete the last (1400 - minCopied)
+        console.log(`Buffer len is ${buffer.length}`);
         const finalFile = buffer.slice(0, buffer.length - (1400 - minCopied)); //E.g. 2800 - (1400 - 600) = 2800 - 800 = 2000
         console.log(`Computed final file of size: ${finalFile.length} bytes!`);
     }
