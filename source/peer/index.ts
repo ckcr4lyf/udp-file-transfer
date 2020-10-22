@@ -5,7 +5,6 @@ import { message } from "../common/interfaces";
 import { SETTINGS } from "../../settings";
 import { performance } from 'perf_hooks';
 import { timeInterval } from "../common/utilities";
-import { rejects } from "assert";
 
 const TIME_LIMIT = 5000;
 
@@ -48,7 +47,7 @@ export default class Peer {
             console.log(`Sending ping!`);
             this.pingInterval.start();
             this.socket.send(packet, this.serverPort, this.serverAddress);
-            this.toResolve = resolve; //Magic part 1: Set a member variable to our promise resolving function
+            this.toResolve = resolve;
             this.timeout = setTimeout(() => {
                 reject();
             }, 2000);
@@ -61,11 +60,6 @@ export default class Peer {
             clearTimeout(this.timeout); // So that the rejection doesnt happen
         }
         console.log(`Ping: ${this.pingInterval.asString()}ms`);
-
-        //Magic part 2:
-        //We had passed / set the promise resolve function to a class member
-        //So the completely separate handle function can now access it
-        //And accordingly resolve it.
         if (this.toResolve){
             this.toResolve();
         }
@@ -75,12 +69,13 @@ export default class Peer {
         const header = new UDPHeader(null, 0x01, 0x01, MESSAGES.FILE_DOWNLOAD_REQUEST, 0x00, filename.length);
         const payload = Buffer.from(filename);
         const packet = Buffer.concat([header.asBinary(), payload]);
-        console.log(`Prepared packet`, packet);
+        console.log(`Requesting file ${filename}...`);
         this.lastRequest = { header, payload };
         this.socket.send(packet, this.serverPort, this.serverAddress);
         this.expected = 5; //At first we expect 5 packets. (TBD?)
         this.sentAt = performance.now();
-        this.timeout = setTimeout(this.handleTimeout, SETTINGS.PEER_RECV_TIMEOUT);
+        // this.timeout = setTimeout(this.handleTimeout, SETTINGS.PEER_RECV_TIMEOUT);
+        this.timeout = setTimeout(this.handleTimeout, this.pingInterval.getInterval());
     }
 
     handleTimeout = () => {
