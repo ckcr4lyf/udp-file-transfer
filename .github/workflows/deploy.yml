@@ -35,6 +35,9 @@ jobs:
           
       - name: Build
         run: npm run build
+      
+      - name: Setup
+        run: cp sample.settings.js settings.js      
         
       - name: Run
         run: node build/serverTest.js 0.0.0.0 1197
