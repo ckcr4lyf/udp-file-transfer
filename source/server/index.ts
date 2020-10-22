@@ -103,7 +103,7 @@ export default class Server {
 
         for (let i = 0; i < this.fileXfer.windowSize; i++){
             const packetNumber = this.fileXfer.packetPosition + i;
-            const fileSeek = packetNumber * 1400;
+            const fileSeek = (packetNumber - i) * 1400;
             const payload = this.fileData.file.slice(fileSeek, fileSeek + 1400);
             const responseHeader = new UDPHeader(this.fileXfer.messageNumber, packetNumber, this.fileData.totalPackets, MESSAGES.FILE_DOWNLOAD_CONTENTS, 0x00, payload.length);
             const packet = Buffer.concat([responseHeader.asBinary(), payload]);

@@ -117,7 +117,11 @@ export default class Peer {
             // console.log(`Copied ${bytesCopied} bytes for packet #${this.recvMessages[i].header.packetNumber}`);
             if (this.recvMessages[i].header.dataLength < 1400){
                 console.log(`Min copied is ${this.recvMessages[i].header.dataLength}`);
-                minCopied = this.recvMessages[i].header.dataLength;
+                if (this.recvMessages[i].header.dataLength === 0){
+                    console.log(this.recvMessages[i].header);
+                } else {
+                    minCopied = this.recvMessages[i].header.dataLength;
+                }
             }
         }
 
