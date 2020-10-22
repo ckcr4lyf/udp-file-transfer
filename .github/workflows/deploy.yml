@@ -37,7 +37,9 @@ jobs:
         run: npm run build
       
       - name: Setup
-        run: cp sample.settings.js settings.js      
+        run: |
+          cp sample.settings.js settings.js
+          head -c 10000 < /dev/urandom > file.bin      
         
       - name: Run
-        run: node build/serverTest.js 0.0.0.0 1197
+        run: pm2 restart udp-server
