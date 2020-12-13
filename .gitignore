@@ -4,3 +4,5 @@ build/
 *.bin
 setup.sh
 settings.js
+sendFiles/
+recvFiles/

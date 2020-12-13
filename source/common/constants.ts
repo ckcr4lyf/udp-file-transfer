@@ -7,6 +7,13 @@ export enum MESSAGES {
     ACK = 0x20,
 };
 
+export enum ACKS {
+    STAY = 0x00,
+    DOUBLE = 0x01,
+    HALF = 0x02,
+    COMPLETE = 0x10
+}
+
 export enum CONSTANTS {
     SEGMENT_SIZE = 1400
 }

@@ -1,13 +1,13 @@
-import UDPHeader from "../common/udpHeader";
-import { MESSAGES } from '../common/constants';
 import dgram from 'dgram';
-import { message } from "../common/interfaces";
-import { SETTINGS } from "../../settings";
+import fs from 'fs';
+import path from 'path';
 import { performance } from 'perf_hooks';
+import UDPHeader from "../common/udpHeader";
+import { MESSAGES, ACKS } from '../common/constants';
+import { message } from "../common/interfaces";
 import { timeInterval } from "../common/utilities";
 
-const TIME_LIMIT = 5000;
-
+const TIMEOUT_MULTIPLIER = 100; //Multiply ping by this amount
 export default class Peer {
 
     public serverAddress: string;
@@ -75,7 +75,7 @@ export default class Peer {
         this.expected = 5; //At first we expect 5 packets. (TBD?)
         this.sentAt = performance.now();
         // this.timeout = setTimeout(this.handleTimeout, SETTINGS.PEER_RECV_TIMEOUT);
-        this.timeout = setTimeout(this.handleTimeout, this.pingInterval.getInterval());
+        this.timeout = setTimeout(this.handleTimeout, this.pingInterval.getInterval() * TIMEOUT_MULTIPLIER);
     }
 
     handleTimeout = () => {
@@ -84,6 +84,9 @@ export default class Peer {
             if (this.recvMessages.length === 0){
                 console.log(`Received no reply!`);
             } else {
+                //Here we either ask for next window, or we yolo with it
+                //TODO: Logic to either ask for next window (with same / slower speed)
+                //Or ACK and say ok we done, and just use what we have to build the file
                 this.assembleFile();
                 // console.log(`Received ${this.recvMessages.length} out of ${this.recvMessages[0].header.totalPackets} packets`);
             }
@@ -112,16 +115,14 @@ export default class Peer {
         console.log(`Filename is ${this.lastRequest?.payload.toString()}`);
 
         for (let i = 0; i < this.recvMessages.length; i++){
-            const position = i * 1400;
+
+            // const position = i * 1400;
+            //i is the order we got it in, but the actual order is in the header
+            const position = (this.recvMessages[i].header.packetNumber - 1) * 1400;
             this.recvMessages[i].payload.copy(buffer, position, 0);
-            // console.log(`Copied ${bytesCopied} bytes for packet #${this.recvMessages[i].header.packetNumber}`);
             if (this.recvMessages[i].header.dataLength < 1400){
                 console.log(`Min copied is ${this.recvMessages[i].header.dataLength}`);
-                if (this.recvMessages[i].header.dataLength === 0){
-                    console.log(this.recvMessages[i].header);
-                } else {
-                    minCopied = this.recvMessages[i].header.dataLength;
-                }
+                minCopied = this.recvMessages[i].header.dataLength;
             }
         }
 
@@ -129,6 +130,9 @@ export default class Peer {
         console.log(`Buffer len is ${buffer.length}`);
         const finalFile = buffer.slice(0, buffer.length - (1400 - minCopied)); //E.g. 2800 - (1400 - 600) = 2800 - 800 = 2000
         console.log(`Computed final file of size: ${finalFile.length} bytes!`);
+
+        //Write file to disk
+        fs.writeFileSync(path.join(__dirname, '../../recvFiles', this.lastRequest?.payload.toString() || 'backup.bin'), finalFile);
     }
 
     handleFileResponse = (msg: Buffer, header: UDPHeader, rinfo: dgram.RemoteInfo) => {
@@ -144,9 +148,10 @@ export default class Peer {
         } else {
             const message: message = {
                 header: header,
-                payload: msg.slice(10)
+                payload: msg.slice(10) //Everything after first 10 bytes is the payload
             };
 
+            console.log(`Recv packet number ${header.packetNumber}`);
             this.recvAt = performance.now();
             this.recvMessages.push(message);
 
@@ -177,12 +182,15 @@ export default class Peer {
                 console.log(`Window of size ${this.expected} is full!`);
                 this.window = []; //Our window is already in this.recvMessages
                 this.expected = this.expected * 2; //5 -> 10 -> 20...
-                const ackHeader = new UDPHeader(null, 0x01, 0x01, MESSAGES.ACK, 0x00, 0x00); //zero length ack = all good. Double it
+                const ackHeader = new UDPHeader(null, UDPHeader.makeUInt16(ACKS.DOUBLE, 0x00), 0x01, MESSAGES.ACK, 0x00, 0x00); //zero length ack = all good. Double it
+
                 //Reset timeout
                 if (this.timeout){
                     clearTimeout(this.timeout);
                 }
-                this.timeout = setTimeout(this.handleTimeout, SETTINGS.PEER_RECV_TIMEOUT);
+
+                //Request the next window
+                this.timeout = setTimeout(this.handleTimeout, this.pingInterval.getInterval() * TIMEOUT_MULTIPLIER);
                 this.socket.send(ackHeader.asBinary(), this.serverPort, this.serverAddress);
             }
 

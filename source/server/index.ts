@@ -79,7 +79,6 @@ export default class Server {
 
     handlePing = (msg: Buffer, header: UDPHeader, rinfo: dgram.RemoteInfo) => {
         const responseHeader = new UDPHeader(header.messageNumber + 1, 0x01, 0x01, MESSAGES.PONG, 0x00, 0x00);
-        // const packet = Buffer.concat([responseHeader.asBinary()]);
         console.log(`Replying to ping with pong!`);
         this.socket.send(responseHeader.asBinary(), rinfo.port, rinfo.address);
     }
@@ -103,11 +102,18 @@ export default class Server {
 
         for (let i = 0; i < this.fileXfer.windowSize; i++){
             const packetNumber = this.fileXfer.packetPosition + i;
+            console.log(`Set packet number to ${packetNumber}`);
             const fileSeek = (packetNumber - 1) * 1400;
             const payload = this.fileData.file.slice(fileSeek, fileSeek + 1400);
             const responseHeader = new UDPHeader(this.fileXfer.messageNumber, packetNumber, this.fileData.totalPackets, MESSAGES.FILE_DOWNLOAD_CONTENTS, 0x00, payload.length);
             const packet = Buffer.concat([responseHeader.asBinary(), payload]);
-            this.socket.send(packet, rinfo.port, rinfo.address);
+            
+            //Introduce a bit of a random delay, to send packets out of order
+            //Useful for localhost testing.
+            const delay = Math.floor(Math.random() * 100);
+            setTimeout(() => {
+                this.socket.send(packet, rinfo.port, rinfo.address);
+            }, delay)
         }
 
         this.fileXfer.packetPosition += this.fileXfer.windowSize;
@@ -118,7 +124,7 @@ export default class Server {
         const filepath = path.join(this.root, filename.toString());
 
         if (!fs.existsSync(filepath)){
-            return; //Just no response for now
+            return; //Ignore for now
         }
 
         const size = fs.statSync(filepath).size;
