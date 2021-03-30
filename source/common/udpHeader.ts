@@ -21,6 +21,7 @@ export default class UDPHeader {
         const uint16_t = Buffer.alloc(2);
         uint16_t.writeUInt16BE(packetNumber);
         this.ACKS_VALUE = uint16_t.slice(0, 1).readUInt8(); //Only used if the message type is ACK, but always parsed.
+        //IDEA - totalPackets (2 byte) represents how many we want in next window?
         // console.log(`ACKS_VALUE is ${this.ACKS_VALUE} and key is ${ACKS[this.ACKS_VALUE]}`);
         this.totalPackets = totalPackets;
         this.messageType = messageType;

@@ -20,9 +20,11 @@ export default class Peer {
     public sentAt: number;
     public recvAt: number;
     public pingInterval: timeInterval;
-    public expected: number;
+    public expected: number; // Expected number of packets in the current window
+    public totalExpected: number; // Expected number of packets for current file request.
     public toResolve: undefined | Function;
     public toReject: undefined | Function;
+    public assumeRecv: number;
 
     constructor(serverAddress: string, serverPort: number) {
         this.serverAddress = serverAddress;
@@ -37,6 +39,8 @@ export default class Peer {
         this.window = [];
         this.pingInterval = new timeInterval();
         this.expected = -1;
+        this.totalExpected = -1;
+        this.assumeRecv = 0;
     }
 
     ping = async (): Promise<void> => {
@@ -45,7 +49,7 @@ export default class Peer {
             const packet = Buffer.concat([header.asBinary()]);
             this.lastRequest = { header, payload: Buffer.alloc(0) }; //So that handle message can track the expected messageNumber
             console.log(`Sending ping!`);
-            this.pingInterval.start();
+            this.pingInterval.start();                        
             this.socket.send(packet, this.serverPort, this.serverAddress);
             this.toResolve = resolve;
             this.timeout = setTimeout(() => {
@@ -86,9 +90,33 @@ export default class Peer {
             } else {
                 //Here we either ask for next window, or we yolo with it
                 //TODO: Logic to either ask for next window (with same / slower speed)
-                //Or ACK and say ok we done, and just use what we have to build the file
-                this.assembleFile();
-                // console.log(`Received ${this.recvMessages.length} out of ${this.recvMessages[0].header.totalPackets} packets`);
+                //TODO: Repeat current window if too less packets
+
+                // Calculate the packets remaining in this window
+                const remainingWindow = this.expected - this.window.length;
+                console.log(`Received ${this.window.length}/${this.expected} in the timed-out window`);
+
+                // If after this window, we still expected more, then we send an ACK asking for more
+                if (this.recvMessages.length + this.assumeRecv + this.expected < this.totalExpected){
+                    // Prepare an ACK, asking them to HALVE the windowSize
+                    // Since we assume we received the entire window, update recv
+                    this.assumeRecv += remainingWindow;
+                    const ackHeader = new UDPHeader(null, UDPHeader.makeUInt16(ACKS.HALF, 0x00), 0x01, MESSAGES.ACK, 0x00, 0x00);
+                    this.expected = this.expected / 2;
+                    this.window = []; //Clear it for the next request size.
+
+                    if (this.timeout){
+                        clearTimeout(this.timeout);
+                    }
+
+                    //Send the ACK, requesting a window of half the size
+                    this.timeout = setTimeout(this.handleTimeout, this.pingInterval.getInterval() * TIMEOUT_MULTIPLIER);
+                    this.socket.send(ackHeader.asBinary(), this.serverPort, this.serverAddress);
+                } else {
+                    // Else, we can ACK and say ok we done, and just use what we have to build the file
+                    this.assembleFile();
+                    console.log(`Received ${this.recvMessages.length} out of ${this.recvMessages[0].header.totalPackets} packets`);
+                }
             }
         }
     }
@@ -154,6 +182,11 @@ export default class Peer {
             console.log(`Recv packet number ${header.packetNumber}`);
             this.recvAt = performance.now();
             this.recvMessages.push(message);
+
+            //Set totalExpected if not set
+            if (this.totalExpected === -1){
+                this.totalExpected = header.totalPackets;
+            }
 
             //If we got everything, dont need to wait for window.
             if (this.recvMessages.length === header.totalPackets){

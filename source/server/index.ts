@@ -18,14 +18,6 @@ export default class Server {
     public fileData: fileData;
     public fileXfer: fileXfer;
 
-    // public file: Buffer;
-    // public windowSize: number;
-    // public packetPosition: number;
-    // public messageNumber: number;
-    // public totalPackets: number;
-    // public fullPackets: number;
-    // public leftoverSize: number;
-
     constructor(serverAddress: string, serverPort: number, root: string){
         this.serverAdress = serverAddress;
         this.serverPort = serverPort;
@@ -44,14 +36,6 @@ export default class Server {
             packetPosition: 0,
             messageNumber: 0
         };
-
-        // this.totalPackets = 0;
-        // this.fullPackets = 0;
-        // this.leftoverSize = 0;
-        // this.windowSize = 0;
-        // this.packetPosition = 0;
-        // this.messageNumber = 0;
-        // this.file = Buffer.alloc(0);
         
         this.socket.on('message', this.handleMessage);
         this.socket.bind(serverPort, serverAddress, () => {
@@ -84,7 +68,7 @@ export default class Server {
     }
 
     handleAck = (msg: Buffer, header: UDPHeader, rinfo: dgram.RemoteInfo) => {
-        this.fileXfer.windowSize = this.fileXfer.windowSize * 2; //TODO: Linear as an alternative if a flag is set?
+        this.fileXfer.windowSize = this.fileXfer.windowSize * 2; //TODO: Linear as an alternative if a flag is set? Or custom window size even
         if (this.fileXfer.packetPosition + this.fileXfer.windowSize > this.fileData.totalPackets){
             this.fileXfer.windowSize = (this.fileData.totalPackets - this.fileXfer.packetPosition) + 1;
         }
@@ -100,6 +84,12 @@ export default class Server {
         //Update packet position
         //TODO: Logic to resend
 
+        const packetsLeft = this.fileData.totalPackets - this.fileXfer.packetPosition + 1;
+
+        if (packetsLeft < this.fileXfer.windowSize){
+            this.fileXfer.windowSize = packetsLeft;
+        }
+
         for (let i = 0; i < this.fileXfer.windowSize; i++){
             const packetNumber = this.fileXfer.packetPosition + i;
             console.log(`Set packet number to ${packetNumber}`);
@@ -110,10 +100,11 @@ export default class Server {
             
             //Introduce a bit of a random delay, to send packets out of order
             //Useful for localhost testing.
-            const delay = Math.floor(Math.random() * 100);
-            setTimeout(() => {
-                this.socket.send(packet, rinfo.port, rinfo.address);
-            }, delay)
+            this.socket.send(packet, rinfo.port, rinfo.address);
+            // const delay = Math.floor(Math.random() * 100);
+            // setTimeout(() => {
+            //     this.socket.send(packet, rinfo.port, rinfo.address);
+            // }, delay)
         }
 
         this.fileXfer.packetPosition += this.fileXfer.windowSize;
@@ -156,6 +147,7 @@ export default class Server {
         this.sendWindow(header, rinfo);
         return;
         
+        /*
         const t1 = performance.now();
 
         //We send window length worth of packets.
@@ -184,5 +176,6 @@ export default class Server {
 
         const duration = performance.now() - t1;
         console.log(`Sent ${totalPackets} packets totalling ${size} bytes in ${duration.toFixed(2)}ms.`);
+        */
     }
 }
