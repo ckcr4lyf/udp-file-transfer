@@ -7,6 +7,9 @@ import { performance } from 'perf_hooks';
 import { sleep } from '../common/utilities';
 import { SETTINGS } from '../../settings';
 import { fileData, fileXfer } from '../common/interfaces';
+import { Logger } from '../common/logger';
+
+const logger = new Logger(2);
 
 export default class Server {
 
@@ -20,7 +23,7 @@ export default class Server {
 
     constructor(serverAddress: string, serverPort: number, root: string){
 
-        console.log(`Starting server constructor...`);
+        logger.debug(`Starting server constructor...`);
         this.serverAdress = serverAddress;
         this.serverPort = serverPort;
         this.root = root;
@@ -43,7 +46,7 @@ export default class Server {
 
         this.socket.on('error', (socketError: NodeJS.ErrnoException) => {
             if (socketError.code === 'EADDRINUSE'){
-                console.log(`Failed to bind to ${serverAddress}:${serverPort} since it is in use.`);
+                logger.error(`Failed to bind to ${serverAddress}:${serverPort} since it is in use.`);
                 process.exit(1);
             } else {
                 console.log(`Socket encountered an error`, socketError, socketError.name);
@@ -51,7 +54,7 @@ export default class Server {
         });
 
         this.socket.bind(serverPort, serverAddress, () => {
-            console.log(`Server listening on ${serverAddress}:${serverPort}`);
+            logger.info(`Server listening on ${serverAddress}:${serverPort}`);
         });
 
         this.functionMap = {
@@ -62,20 +65,19 @@ export default class Server {
     }
 
     handleMessage = (msg: Buffer, rinfo: dgram.RemoteInfo) => {
-        console.log(`Incoming message from ${rinfo.address}:${rinfo.port}`);
+        logger.debug(`Incoming message from ${rinfo.address}:${rinfo.port}`);
         const header = UDPHeader.fromBinary(msg.slice(0, 10));
-        // console.log(MESSAGES[header.messageType]);
 
         try {
             this.functionMap[MESSAGES[header.messageType]](msg, header, rinfo);
         } catch (error){
-            console.log('Invalid message type!');
+            logger.warn('Invalid message type!');
         }
     }
 
     handlePing = (msg: Buffer, header: UDPHeader, rinfo: dgram.RemoteInfo) => {
         const responseHeader = new UDPHeader(header.messageNumber + 1, 0x01, 0x01, MESSAGES.PONG, 0x00, 0x00);
-        console.log(`Replying to ping with pong!`);
+        logger.debug(`Replying to ping with pong!`);
         this.socket.send(responseHeader.asBinary(), rinfo.port, rinfo.address);
     }
 
@@ -89,16 +91,16 @@ export default class Server {
 
         if (header.ACKS_VALUE === ACKS.DOUBLE){
             multiplier *= 2;
-            console.log(`Received a DOUBLE ACK! Changed windowSize to ${this.fileXfer.windowSize * multiplier}`);
+            logger.debug(`Received a DOUBLE ACK! Changed windowSize to ${this.fileXfer.windowSize * multiplier}`);
         } else if (header.ACKS_VALUE === ACKS.STAY){
             // Do nothing
-            console.log(`Received a STAY ACK! Keeping window size as ${this.fileXfer.windowSize}`);
+            logger.debug(`Received a STAY ACK! Keeping window size as ${this.fileXfer.windowSize}`);
         } else if (header.ACKS_VALUE === ACKS.HALF){
             if (this.fileXfer.windowSize % 2 === 0){
                 multiplier = 0.5;
-                console.log(`Received a HALF ACK! Changed window size as ${this.fileXfer.windowSize * multiplier}`);
+                logger.debug(`Received a HALF ACK! Changed window size as ${this.fileXfer.windowSize * multiplier}`);
             } else {
-                console.log('Window size is odd, will keep multiplier to 1.');
+                logger.debug('Window size is odd, will keep multiplier to 1.');
             }
         }
 
@@ -128,7 +130,7 @@ export default class Server {
 
         for (let i = 0; i < this.fileXfer.windowSize; i++){
             const packetNumber = this.fileXfer.packetPosition + i;
-            // console.log(`Set packet number to ${packetNumber}`);
+            logger.trace(`Set packet number to ${packetNumber}`);
             const fileSeek = (packetNumber - 1) * 1400;
             const payload = this.fileData.file.slice(fileSeek, fileSeek + 1400);
             const responseHeader = new UDPHeader(this.fileXfer.messageNumber, packetNumber, this.fileData.totalPackets, MESSAGES.FILE_DOWNLOAD_CONTENTS, 0x00, payload.length);
@@ -151,7 +153,7 @@ export default class Server {
         const filepath = path.join(this.root, filename.toString());
 
         if (!fs.existsSync(filepath)){
-            console.log(`File does not exist! Requested filename: [${filename}], converted to filepath: [${filepath}]`);
+            logger.error(`File does not exist! Requested filename: [${filename}], converted to filepath: [${filepath}]`);
             return; //Ignore for now
         }
 
@@ -172,47 +174,8 @@ export default class Server {
             messageNumber: header.messageNumber + 1
         };
 
-        // this.packetPosition = 1;
-        // this.windowSize = 5;
-        // this.fullPackets = fullPackets;
-        // this.leftoverSize = leftoverSize;
-        // this.messageNumber = header.messageNumber + 1;
-        // this.file = file;
-        // this.totalPackets = totalPackets;
-
-        console.log(`We have ${fullPackets} full sized packets, and leftover packet of size ${leftoverSize}`);
+        logger.info(`We have ${fullPackets} full sized packets, and leftover packet of size ${leftoverSize}`);
         this.sendWindow(header, rinfo);
         return;
-        
-        /*
-        const t1 = performance.now();
-
-        //We send window length worth of packets.
-
-        for (let i = 0; i < fullPackets; i++){
-            const position = i * 1400;
-            const payload = file.slice(position, position + 1400);
-            const responseHeader = new UDPHeader(header.messageNumber + 1, i + 1, totalPackets, MESSAGES.FILE_DOWNLOAD_CONTENTS, 0x00, 1400);
-            const packet = Buffer.concat([responseHeader.asBinary(), payload]);
-            // console.log(packet);
-            this.socket.send(packet, rinfo.port, rinfo.address);
-            if (i % SETTINGS.SEND_INTERVAL_COUNT === 0){
-                //Artificial sleep
-                await sleep(SETTINGS.SEND_INTERVAL_TIME);
-            }
-        }
-
-        if (leftoverSize !== 0){
-            const position = fullPackets * 1400;
-            const payload = file.slice(position, position + leftoverSize);
-            const responseHeader = new UDPHeader(header.messageNumber + 1, totalPackets, totalPackets, MESSAGES.FILE_DOWNLOAD_CONTENTS, 0x00, leftoverSize);
-            const packet = Buffer.concat([responseHeader.asBinary(), payload]);
-            // console.log(packet);
-            this.socket.send(packet, rinfo.port, rinfo.address);
-        }
-
-        const duration = performance.now() - t1;
-        console.log(`Sent ${totalPackets} packets totalling ${size} bytes in ${duration.toFixed(2)}ms.`);
-        */
     }
 }
