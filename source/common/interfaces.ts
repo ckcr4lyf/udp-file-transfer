@@ -22,3 +22,8 @@ export interface lastWindow {
     position: number,
     count: number
 }
+
+export interface promiseResolver {
+    resolve: Function,
+    reject: Function,
+}

@@ -1,7 +1,7 @@
 import dgram from 'dgram';
 import path from 'path';
 import fs from 'fs';
-import { MESSAGES } from '../common/constants';
+import { ACKS, MESSAGES } from '../common/constants';
 import UDPHeader from '../common/udpHeader';
 import { performance } from 'perf_hooks';
 import { sleep } from '../common/utilities';
@@ -19,6 +19,8 @@ export default class Server {
     public fileXfer: fileXfer;
 
     constructor(serverAddress: string, serverPort: number, root: string){
+
+        console.log(`Starting server constructor...`);
         this.serverAdress = serverAddress;
         this.serverPort = serverPort;
         this.root = root;
@@ -38,6 +40,16 @@ export default class Server {
         };
         
         this.socket.on('message', this.handleMessage);
+
+        this.socket.on('error', (socketError: NodeJS.ErrnoException) => {
+            if (socketError.code === 'EADDRINUSE'){
+                console.log(`Failed to bind to ${serverAddress}:${serverPort} since it is in use.`);
+                process.exit(1);
+            } else {
+                console.log(`Socket encountered an error`, socketError, socketError.name);
+            }
+        });
+
         this.socket.bind(serverPort, serverAddress, () => {
             console.log(`Server listening on ${serverAddress}:${serverPort}`);
         });
@@ -68,11 +80,32 @@ export default class Server {
     }
 
     handleAck = (msg: Buffer, header: UDPHeader, rinfo: dgram.RemoteInfo) => {
-        this.fileXfer.windowSize = this.fileXfer.windowSize * 2; //TODO: Linear as an alternative if a flag is set? Or custom window size even
+
+
+        //TODO: An ack which retransmits the window?
+
+        // Check the ACK flag
+        let multiplier = 1;
+
+        if (header.ACKS_VALUE === ACKS.DOUBLE){
+            multiplier *= 2;
+            console.log(`Received a DOUBLE ACK! Changed windowSize to ${this.fileXfer.windowSize * multiplier}`);
+        } else if (header.ACKS_VALUE === ACKS.STAY){
+            // Do nothing
+            console.log(`Received a STAY ACK! Keeping window size as ${this.fileXfer.windowSize}`);
+        } else if (header.ACKS_VALUE === ACKS.HALF){
+            if (this.fileXfer.windowSize % 2 === 0){
+                multiplier = 0.5;
+                console.log(`Received a HALF ACK! Changed window size as ${this.fileXfer.windowSize * multiplier}`);
+            } else {
+                console.log('Window size is odd, will keep multiplier to 1.');
+            }
+        }
+
+        this.fileXfer.windowSize = this.fileXfer.windowSize *  multiplier; //TODO: Linear as an alternative if a flag is set? Or custom window size even
         if (this.fileXfer.packetPosition + this.fileXfer.windowSize > this.fileData.totalPackets){
             this.fileXfer.windowSize = (this.fileData.totalPackets - this.fileXfer.packetPosition) + 1;
         }
-        console.log(`Received an ACK! Changed windowSize to ${this.fileXfer.windowSize}`);
         this.sendWindow(header, rinfo);
     }
 
@@ -88,11 +121,14 @@ export default class Server {
 
         if (packetsLeft < this.fileXfer.windowSize){
             this.fileXfer.windowSize = packetsLeft;
+        } else if (packetsLeft === 0){
+            console.log(`Finished file transfer!!!`);
+            return;
         }
 
         for (let i = 0; i < this.fileXfer.windowSize; i++){
             const packetNumber = this.fileXfer.packetPosition + i;
-            console.log(`Set packet number to ${packetNumber}`);
+            // console.log(`Set packet number to ${packetNumber}`);
             const fileSeek = (packetNumber - 1) * 1400;
             const payload = this.fileData.file.slice(fileSeek, fileSeek + 1400);
             const responseHeader = new UDPHeader(this.fileXfer.messageNumber, packetNumber, this.fileData.totalPackets, MESSAGES.FILE_DOWNLOAD_CONTENTS, 0x00, payload.length);
@@ -115,6 +151,7 @@ export default class Server {
         const filepath = path.join(this.root, filename.toString());
 
         if (!fs.existsSync(filepath)){
+            console.log(`File does not exist! Requested filename: [${filename}], converted to filepath: [${filepath}]`);
             return; //Ignore for now
         }
 

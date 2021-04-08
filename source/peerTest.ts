@@ -19,5 +19,15 @@ const peer = new Peer(server, parseInt(port));
         process.exit(1);
     }
 
-    peer.requestFile(filename);
+    //TBD: This should be a promise which resolves when that thingy is done.
+    await peer.requestFile('caes0.ts');
+    await peer.requestFile('caes1.ts');
+    await peer.requestFile('caes2.ts');
+    await peer.requestFile('caes3.ts');
+    await peer.requestFile('caes4.ts');
+    await peer.requestFile('caes5.ts');
+    await peer.requestFile('caes6.ts');
+    await peer.requestFile('caes7.ts');
+    await peer.requestFile('caes8.ts');
+    await peer.requestFile('caes9.ts');
 })();
