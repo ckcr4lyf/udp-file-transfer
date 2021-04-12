@@ -5,6 +5,12 @@ export enum MESSAGES {
     FILE_DOWNLOAD_CONTENTS = 0x04,
     FILE_DOWNLOAD_NOT_FOUND = 0x05,
     ACK = 0x20,
+    MANIFEST_REQUEST = 0x30,
+    MANIFEST_RESPONSE = 0x31,
+    HANDSHAKE_REQUEST = 0x41,
+    HANDSHAKE_RESPONSE = 0x42,
+    PEERLIST_REQUEST = 0x43,
+    PEERLIST_RESPONSE = 0x44,
 };
 
 export enum ACKS {
@@ -16,4 +22,10 @@ export enum ACKS {
 
 export enum CONSTANTS {
     SEGMENT_SIZE = 1400
+}
+
+export enum STATUS {
+    HAVE = 0x01,
+    DONT_HAVE = 0x02,
+    DOWNLOADING = 0x03,
 }

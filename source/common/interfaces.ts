@@ -1,3 +1,4 @@
+import { STATUS } from "./constants";
 import UDPHeader from "./udpHeader";
 
 export interface message {
@@ -26,4 +27,18 @@ export interface lastWindow {
 export interface promiseResolver {
     resolve: Function,
     reject: Function,
+}
+
+export interface fileDict {
+    [filename: string]: fileMeta,
+}
+
+export interface fileMeta {
+    status: STATUS
+}
+
+export interface peerInfo {
+    peerAddress: string,
+    peerPort: number,
+    hash: string,
 }

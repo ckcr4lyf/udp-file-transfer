@@ -8,6 +8,7 @@ export default class UDPHeader {
     public flags: number;
     public dataLength: number;
     public ACKS_VALUE: ACKS;
+    public port: number;
 
     constructor(messageNumber: number | null, packetNumber: number, totalPackets: number, messageType: MESSAGES, flags: number, dataLength: number){
         
@@ -20,9 +21,16 @@ export default class UDPHeader {
         this.packetNumber = packetNumber;
         const uint16_t = Buffer.alloc(2);
         uint16_t.writeUInt16BE(packetNumber);
+
         this.ACKS_VALUE = uint16_t.slice(0, 1).readUInt8(); //Only used if the message type is ACK, but always parsed.
         //IDEA - totalPackets (2 byte) represents how many we want in next window?
         // console.log(`ACKS_VALUE is ${this.ACKS_VALUE} and key is ${ACKS[this.ACKS_VALUE]}`);
+
+        const uint32_t = Buffer.alloc(4);
+        uint32_t.writeUInt16BE(packetNumber, 0);
+        uint32_t.writeUInt16BE(totalPackets, 2);
+        this.port = uint32_t.readUInt32BE();
+
         this.totalPackets = totalPackets;
         this.messageType = messageType;
         this.flags = flags;
@@ -52,5 +60,11 @@ export default class UDPHeader {
      */
     static makeUInt16 = (byte0: number, byte1: number) => {
         return Buffer.from([byte0, byte1]).readUInt16BE();
+    }
+
+    static portAsTwoUInt16s = (port: number) => {
+        const temp = Buffer.alloc(4);
+        temp.writeUInt32BE(port);
+        return [temp.slice(0, 2), temp.slice(2, 4)];
     }
 }

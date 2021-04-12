@@ -8,15 +8,18 @@ import { sleep, timeInterval } from '../common/utilities';
 import { SETTINGS } from '../../settings';
 import { fileData, fileXfer, message, promiseResolver } from '../common/interfaces';
 import { Logger } from '../common/logger';
+import { clear } from 'console';
+import { LOGLEVEL } from '../app';
 
 
 // This class contains a "connection" with a peer 
 // via an "outgoing" UDP socket, and associates 
 // the replies within itself
 
-const RECV_TIMEOUT = 10 * 50; // 500 milliseconds?
+const RECV_TIMEOUT = 10 * 100; // 1000 milliseconds?
 const RECV_RATIO_TIMEOUT_STAY = 0.99; // If we got this ratio of packets but timed out, do not half
 const CONSECUTIVE_FULL_WINDOW_DOUBLE = 50;  // If we get this many consecutive 100% windows after a timeout, we enable double again.
+const MANIFEST_RETRY_LIMIT = 3;
 
 export default class RequestHandler {
     
@@ -40,6 +43,9 @@ export default class RequestHandler {
     public totalExpected: number; // Total number of packets expected for this file
     public recvAssumedCount: number; // Number of packets assumed to have been received (counting lost)
     public finalPort: boolean; // Initially false, when the server replies we update port.
+
+    // For manifest requests
+    public attemptCount: number;
     
     // Related to timeouts
     public timedOut: boolean;
@@ -63,7 +69,8 @@ export default class RequestHandler {
         this.folderRoot = folderRoot;
         this.finalPort = true;
         this.sendMode = false; // Default to file recv
-        this.log = new Logger(1); //TODO: Loglevel in global constant
+        this.log = new Logger(LOGLEVEL); //TODO: Loglevel in global constant
+        this.attemptCount = 0;
         
         this.socket = dgram.createSocket('udp4');
         // this.handleMessage.bind(this);
@@ -169,6 +176,11 @@ export default class RequestHandler {
         if (messageHeader.messageType === MESSAGES.FILE_DOWNLOAD_CONTENTS){
             this.log.trace(`Received file data`);
             this.handleFileResponse(message, messageHeader, remoteInfo);
+        }
+
+        if (messageHeader.messageType === MESSAGES.MANIFEST_RESPONSE){
+            this.log.trace(`Received manifest`);
+            this.handleManifestResponse(message.slice(10, 10 + messageHeader.dataLength));
         }
     }
     
@@ -352,7 +364,7 @@ export default class RequestHandler {
         
         // If this packet means we got it all, then we can move on directly
         if (this.recvMessages.length + this.recvAssumedCount === this.totalExpected){
-            this.log.info(`Received all packets!`);
+            this.log.debug(`Received all packets!`);
             this.assembleFile();
             
             if (this.timeout !== null){
@@ -416,8 +428,31 @@ export default class RequestHandler {
         
         this.timedOut = true;
         this.timeoutSuccessCounter = 0;
+        this.recvAt = performance.now();
         
         // Currently only handle timeouts when we request a file download
+
+        // Actually, also for manifest request
+
+        if (this.request?.header.messageType === MESSAGES.MANIFEST_REQUEST){
+            this.attemptCount += 1;
+
+            if (this.attemptCount <= MANIFEST_RETRY_LIMIT){
+                this.log.warn(`Timed out on manifest request. Retrying... (Attempt ${this.attemptCount})`)
+                
+                if (this.timeout !== null){
+                    clearTimeout(this.timeout);
+                }
+
+                this.requestManifest();
+            } else {
+                this.log.error(`Failed to get manifest from ${this.peerAddress}:${this.peerPort}`);
+                this.dataResolver.reject();
+            }
+
+            return;
+        }
+
         if (this.request?.header.messageType === MESSAGES.FILE_DOWNLOAD_REQUEST){
             
             if (this.recvWindow.length === 0){
@@ -430,7 +465,7 @@ export default class RequestHandler {
             
             const remainingWindow = this.recvWindowExpected - this.recvWindow.length;
             const recvRatio = this.recvWindow.length / this.recvWindowExpected;
-            this.log.info(`Time out! Received ${recvRatio * 100}% packets in window of size ${this.recvWindowExpected}`);
+            this.log.debug(`Time out! Received ${recvRatio * 100}% packets in window of size ${this.recvWindowExpected}`);
             
             
             // If we still expect more for this file, then we should send the corresponding ACK
@@ -469,7 +504,7 @@ export default class RequestHandler {
                 this.socket.send(ackHeader.asBinary(), this.peerPort, this.peerAddress);
             } else {
                 // This was the last window anyway. Just assemble the file with what we have
-                this.log.info(`Received ${this.recvMessages.length}/${this.totalExpected} packets.`);
+                this.log.debug(`Received ${this.recvMessages.length}/${this.totalExpected} packets.`);
                 this.assembleFile();
             }
         } else {
@@ -503,7 +538,7 @@ export default class RequestHandler {
         const finalFile = buffer.slice(0, finalFileSize);
         const throughput = finalFileSize / timeTaken; // (bytes / milliseconds) = KB/s
         this.log.info(`Received ${recvRatio * 100}% of the file in ${timeTaken.toFixed(2)}ms. (${throughput.toFixed(2)}KB/s!)`);
-        this.log.info(`Filename is ${this.request?.payload.toString()}`);
+        this.log.debug(`Filename is ${this.request?.payload.toString()}`);
         
         // Write the file to disk
         fs.writeFileSync(path.join(this.folderRoot, this.request?.payload.toString() || 'backup.bin'), finalFile);
@@ -524,4 +559,37 @@ export default class RequestHandler {
         this.dataResolver.resolve();
     }
     
+    async requestManifest(): Promise<Buffer> {
+
+        const header = new UDPHeader(null, 0x01, 0x01, MESSAGES.MANIFEST_REQUEST, 0x00, 0x00);
+        this.log.info(`Requesting manifest`);
+
+        this.request = {
+            header: header,
+            payload: Buffer.alloc(0),
+        };
+
+        // If first time, we are starting fresh
+        // Else timeout will increment it.
+        if (this.attemptCount === 0){
+            this.attemptCount = 1;
+        }
+
+        this.socket.send(header.asBinary(), this.peerPort, this.peerAddress);
+        this.timeout = setTimeout(this.handleTimeout.bind(this), RECV_TIMEOUT);
+
+        return new Promise((resolve, reject) => {
+            this.dataResolver = { resolve, reject };
+        });
+    }
+
+    handleManifestResponse(manifest: Buffer){
+        this.log.debug(`Received manifest from ${this.peerAddress}:${this.peerPort}`);
+
+        if (this.timeout !== null){
+            clearTimeout(this.timeout);
+        }
+
+        this.dataResolver.resolve(manifest);
+    }
 }
