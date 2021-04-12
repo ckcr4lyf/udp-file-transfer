@@ -160,7 +160,7 @@ export default class Request {
         // Acting as server
         if (messageHeader.messageType === MESSAGES.ACK){
             this.log.trace(`Received an ACK`);
-            this.handleAck(messageHeader, messageHeader, remoteInfo);
+            this.handleAck(message, messageHeader, remoteInfo);
         }
 
         // Acting as client
@@ -169,6 +169,117 @@ export default class Request {
             this.handleFileResponse(message, messageHeader, remoteInfo);
         }
     }
+    
+    // Acting as server
+    handleAck(message: Buffer, messageHeader: UDPHeader, remoteInfo: dgram.RemoteInfo){
+
+        // TODO: ACK for window retransmission?
+
+        let multiplier = 1;
+
+        if (messageHeader.ACKS_VALUE === ACKS.DOUBLE){
+            multiplier = 2;
+            this.log.debug(`Received a DOUBLE ACK! Changed window size to ${this.fileXfer.windowSize * multiplier}`);
+        } else if (messageHeader.ACKS_VALUE === ACKS.STAY){
+            // Do nothing
+            this.log.debug(`Received a STAY ACK! Doing nothing...`);
+        } else if (messageHeader.ACKS_VALUE === ACKS.HALF){
+
+            // Check if it is divisible in the first place
+            if (this.fileXfer.windowSize % 2 === 0){
+                multiplier = 0.5;
+                this.log.debug(`Received a HALF ACK! Changed window size to ${this.fileXfer.windowSize * multiplier}`);
+            } else {
+                this.log.debug(`Received a HALF ACK, but window size is odd. Keeping as is.`);
+            }
+        }
+
+        this.fileXfer.windowSize *= multiplier;
+
+        // If we have less packets to send (end of file) than window size, adjust
+        if (this.fileXfer.packetPosition + this.fileXfer.windowSize > this.fileData.totalPackets){
+            this.fileXfer.windowSize = (this.fileData.totalPackets - this.fileXfer.packetPosition) + 1;
+        }
+
+        // this.sendWindow(messageHeader, remoteInfo);
+        this.sendWindow();
+     }
+
+    handleFileDownload(){
+
+        if (this.request === null){
+            this.log.error(`handleFileDownload() called when this.reqest was null`);
+            return;
+        }
+
+        //message: Buffer, messageHeader: UDPHeader, remoteInfo: dgram.RemoteInfo
+        const message = this.request
+        const messageHeader = this.request.header;
+
+        const filename = message.payload.slice(10, 10 + messageHeader.dataLength);
+        const filepath = path.join(this.folderRoot, filename.toString());
+
+        if (!fs.existsSync(filepath)){
+            this.log.error(`File does not exist!`);
+            return;
+        }
+
+        const filesize = fs.statSync(filepath).size;
+        const file = fs.readFileSync(filepath);
+        const fullPackets = Math.floor(filesize / 1400);
+        const leftoverSize = filesize % 1400;
+
+        let totalPackets = fullPackets;
+
+        if (leftoverSize !== 0){
+            totalPackets += 1;
+        }
+
+        this.fileData = { totalPackets, fullPackets, leftoverSize, file };
+        this.fileXfer = {
+            windowSize: 5, // Start with 5
+            packetPosition: 1,
+            messageNumber: messageHeader.messageNumber + 1,
+        };
+
+        const remoteInfo: dgram.RemoteInfo = {
+            port: this.peerPort,
+            address: this.peerAddress,
+            family: 'IPv4', // Not needed strictly
+            size: -1, // Not needed strictly
+        };
+
+        this.log.info(`We have ${fullPackets} full sized packets, and a leftover packet of size ${leftoverSize}`);
+        // this.sendWindow(messageHeader, remoteInfo);
+        this.sendWindow();
+     }
+
+     sendWindow(){
+
+        const packetsLeft = this.fileData.totalPackets - this.fileXfer.packetPosition + 1;
+
+        if (packetsLeft === 0){
+            // Should never happen
+            this.log.error(`sendWindow called when nothing left to send. Returning.`);
+            return;
+        }
+
+        if (packetsLeft < this.fileXfer.windowSize){
+            this.fileXfer.windowSize = packetsLeft;
+        }
+
+        for (let i = 0; i < this.fileXfer.windowSize; i++){
+            const packetNumber = this.fileXfer.packetPosition + i;
+            this.log.trace(`Set packet number to ${packetNumber}`);
+
+            const fileSeek = (packetNumber - 1) * 1400;
+            const payload = this.fileData.file.slice(fileSeek, fileSeek + 1400);
+            const responseHeader = new UDPHeader(this.fileXfer.messageNumber, packetNumber, this.fileData.totalPackets, MESSAGES.FILE_DOWNLOAD_CONTENTS, 0x00, payload.length);
+            const packet = Buffer.concat([responseHeader.asBinary(), payload]);
+
+            this.socket.send(packet, this.peerPort, this.peerAddress);
+        }
+     }
 
     // Acting as client
     
