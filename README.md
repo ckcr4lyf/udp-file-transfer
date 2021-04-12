@@ -20,6 +20,13 @@ npm run build
 As a VOD:
 
 ```
-ffmpeg -i s01e01.mkv -c:v libx264 -vf scale=960:-1 -b:v 500k -preset medium -c:a copy -hls_time 4 -hls_playlist_type vod -t 100 sensei.m3u8
+ffmpeg -re -i "Source.avi" -c:v libx264 -b:v 500k -c:a aac -ac 2 -b:a 128k -hls_time 4 -hls_list_size 10 live.m3u8
 ffmpeg -i caes.mp4 -c:v copy -c:a copy -hls_time 10 -hls_playlist_type vod -t 100 caes.m3u8
+```
+
+
+### Third peer
+
+```
+node .\build\app.js 5555 peer2 peer 127.0.0.1 4444
 ```
