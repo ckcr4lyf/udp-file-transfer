@@ -18,13 +18,14 @@ const RECV_TIMEOUT = 10 * 50; // 500 milliseconds?
 const RECV_RATIO_TIMEOUT_STAY = 0.99; // If we got this ratio of packets but timed out, do not half
 const CONSECUTIVE_FULL_WINDOW_DOUBLE = 50;  // If we get this many consecutive 100% windows after a timeout, we enable double again.
 
-export default class Request {
+export default class RequestHandler {
 
     // Essentials for comms with another peer
     public peerAddress: string;
     public peerPort: number;
     public socket: dgram.Socket;
     public folderRoot: string;
+    public sendMode: boolean;
 
     // Essentials for sending a file
     public fileData: fileData;
@@ -61,11 +62,12 @@ export default class Request {
         this.peerPort = peerPort;
         this.folderRoot = folderRoot;
         this.finalPort = true;
+        this.sendMode = false; // Default to file recv
+        this.log = new Logger(1); //TODO: Loglevel in global constant
 
         this.socket = dgram.createSocket('udp4');
-        this.socket.on('message', this.handleMessage);
-
-        this.log = new Logger(2); //TODO: Loglevel in global constant
+        // this.handleMessage.bind(this);
+        this.socket.on('message', this.handleMessage.bind(this));
 
         // The stuff about the file we need to send
         this.fileData = {
@@ -115,12 +117,12 @@ export default class Request {
 
         // If it was seeded with a received request on listening port
         // add it here, and then handle it accordingly.
-
         // But if we make the request, then we probably dont need this? TBD
         if (request !== null){
+            this.log.info(`Seeding requestHandler with request`);
+            this.sendMode = true; // We are now in sending mode. We dont care about message number (reply). TBD
             this.request = request;
-
-            // TBD: this.handleMessage(); ?
+            this.handleFileDownload();
         }
 
         // TODO: Function map of how to handle types of messages
@@ -152,7 +154,7 @@ export default class Request {
             return;
         }
 
-        if (this.request.header.messageNumber + 1 !== messageHeader.messageNumber){
+        if (this.sendMode === false && this.request.header.messageNumber + 1 !== messageHeader.messageNumber){
             this.log.warn(`Received message for some other request. Ignoring...`);
             return;
         }
@@ -199,6 +201,7 @@ export default class Request {
         // If we have less packets to send (end of file) than window size, adjust
         if (this.fileXfer.packetPosition + this.fileXfer.windowSize > this.fileData.totalPackets){
             this.fileXfer.windowSize = (this.fileData.totalPackets - this.fileXfer.packetPosition) + 1;
+            this.log.info(`For last window, changed size to ${this.fileXfer.windowSize}`);
         }
 
         // this.sendWindow(messageHeader, remoteInfo);
@@ -208,7 +211,7 @@ export default class Request {
     handleFileDownload(){
 
         if (this.request === null){
-            this.log.error(`handleFileDownload() called when this.reqest was null`);
+            this.log.error(`handleFileDownload() called when this.request was null`);
             return;
         }
 
@@ -216,7 +219,7 @@ export default class Request {
         const message = this.request
         const messageHeader = this.request.header;
 
-        const filename = message.payload.slice(10, 10 + messageHeader.dataLength);
+        const filename = message.payload.slice(0, messageHeader.dataLength);
         const filepath = path.join(this.folderRoot, filename.toString());
 
         if (!fs.existsSync(filepath)){
@@ -254,7 +257,7 @@ export default class Request {
         this.sendWindow();
      }
 
-     sendWindow(){
+    sendWindow(){
 
         const packetsLeft = this.fileData.totalPackets - this.fileXfer.packetPosition + 1;
 
@@ -279,7 +282,9 @@ export default class Request {
 
             this.socket.send(packet, this.peerPort, this.peerAddress);
         }
-     }
+
+        this.fileXfer.packetPosition += this.fileXfer.windowSize;
+    }
 
     // Acting as client
     
@@ -314,7 +319,7 @@ export default class Request {
         this.socket.send(packet, this.peerPort, this.peerAddress);
 
         // Register the timeout handler (for entire window)
-        this.timeout = setTimeout(this.handleTimeout, RECV_TIMEOUT);
+        this.timeout = setTimeout(this.handleTimeout.bind(this), RECV_TIMEOUT);
 
         // Return a promise, store the resolution functions for later use
         return new Promise((resolve, reject) => {
@@ -346,7 +351,7 @@ export default class Request {
         }
 
         // If this packet means we got it all, then we can move on directly
-        if (this.recvMessages.length === this.totalExpected){
+        if (this.recvMessages.length + this.recvAssumedCount === this.totalExpected){
             this.log.info(`Received all packets!`);
             this.assembleFile();
 
@@ -379,6 +384,7 @@ export default class Request {
             }
 
             if (this.timedOut === true){
+                // TODO: Change expected length if its less? (Last window or sth. idk)
                 // We were previously timed out. So send the ACK to stay at current window size (instead of double)
                 ackHeader = new UDPHeader(null, UDPHeader.makeUInt16(ACKS.STAY, 0x00), 0x01, MESSAGES.ACK, 0x00, 0x00);
             } else {
@@ -391,8 +397,17 @@ export default class Request {
                 clearTimeout(this.timeout);
             }
 
+            // const packetsLeft = this.totalExpected - (this.recvMessages.length + this.recvAssumedCount + this.recvWindowExpected);
+            // const packetsLeft = this.totalExpected - (this.recvMessages.length - this.recvWindow.length + this.recvAssumedCount + this.recvWindowExpected);
+
+
+            // if (packetsLeft < this.recvWindowExpected){
+            //     this.log.debug(`packetsLeft (${packetsLeft}) is less than recvExpected (${this.recvWindowExpected}). Changing it...`);
+            //     this.recvWindowExpected = packetsLeft;
+            // }
+
             // Request next window
-            this.timeout = setTimeout(this.handleTimeout, RECV_TIMEOUT);
+            this.timeout = setTimeout(this.handleTimeout.bind(this), RECV_TIMEOUT);
             this.socket.send(ackHeader.asBinary(), this.peerPort, this.peerAddress);
         }        
     }
@@ -417,6 +432,7 @@ export default class Request {
             const recvRatio = this.recvWindow.length / this.recvWindowExpected;
             this.log.info(`Time out! Received ${recvRatio * 100}% packets in window of size ${this.recvWindowExpected}`);
 
+
             // If we still expect more for this file, then we should send the corresponding ACK
             if (this.recvMessages.length + this.recvAssumedCount + this.recvWindowExpected < this.totalExpected){
 
@@ -435,8 +451,13 @@ export default class Request {
                     ackHeader = new UDPHeader(null, UDPHeader.makeUInt16(ACKS.STAY, 0x00), 0x01, MESSAGES.ACK, 0x00, 0x00);
                 }
 
-                this.recvWindowExpected *= multiplier;
                 this.recvWindow = [];
+                this.recvWindowExpected *= multiplier;
+
+                // if (packetsLeft < this.recvWindowExpected){
+                //     this.log.debug(`packetsLeft (${packetsLeft}) is less than recvExpected (${this.recvWindowExpected}). Changing it...`);
+                //     this.recvWindowExpected = packetsLeft;
+                // }
 
                 // Reset any window timeout
                 if (this.timeout){
@@ -444,13 +465,15 @@ export default class Request {
                 }
 
                 // Request next window
-                this.timeout = setTimeout(this.handleTimeout, RECV_TIMEOUT);
+                this.timeout = setTimeout(this.handleTimeout.bind(this), RECV_TIMEOUT);
                 this.socket.send(ackHeader.asBinary(), this.peerPort, this.peerAddress);
             } else {
                 // This was the last window anyway. Just assemble the file with what we have
                 this.log.info(`Received ${this.recvMessages.length}/${this.totalExpected} packets.`);
                 this.assembleFile();
             }
+        } else {
+            this.log.error(`Wrong message type??? WTF`);
         }
     }
 

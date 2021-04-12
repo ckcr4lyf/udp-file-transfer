@@ -126,8 +126,11 @@ export default class Peer {
                 const recvRatio = this.window.length / this.expected;
                 console.log(`Received ${this.window.length}/${this.expected} in the timed-out window`);
 
+                // From total expected, subtract actual received, assume received, this window's expected length
+                const packetsLeft = this.totalExpected - (this.recvMessages.length + this.assumeRecv + this.expected);
+
                 // If after this window, we still expected more, then we send an ACK asking for more
-                if (this.recvMessages.length + this.assumeRecv + this.expected < this.totalExpected){
+                if (packetsLeft > 0){
                     // Prepare an ACK, asking them to HALVE the windowSize
                     // Since we assume we received the entire window, update recv
                     this.assumeRecv += remainingWindow;
@@ -143,8 +146,12 @@ export default class Peer {
                         ackHeader = new UDPHeader(null, UDPHeader.makeUInt16(ACKS.STAY, 0x00), 0x01, MESSAGES.ACK, 0x00, 0x00);
                     }
 
-                    this.expected = this.expected * multiplier;
                     this.window = []; //Clear it for the next request size.
+                    this.expected = this.expected * multiplier;
+
+                    if (packetsLeft < this.expected){
+                        this.expected = packetsLeft;
+                    }
 
                     if (this.timeout){
                         clearTimeout(this.timeout);
