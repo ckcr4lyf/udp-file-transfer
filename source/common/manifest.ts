@@ -1,7 +1,7 @@
 import dgram from 'dgram';
 import fs from 'fs';
 import path from 'path';
-import { FILES, FOLDER_ROOT, LOGLEVEL } from '../app';
+import { FILES, FOLDER_ROOT, LOGLEVEL, setManifest } from '../app';
 import RequestHandler from '../request';
 import { MESSAGES, STATUS } from './constants';
 import { Logger } from './logger';
@@ -19,7 +19,10 @@ export const parseManifest = (manifest: Buffer) => {
     const log = new Logger(LOGLEVEL);
     const tempPath = path.join(FOLDER_ROOT, 'live.m3u8.tmp');
     const realPath = path.join(FOLDER_ROOT, 'live.m3u8');
-    fs.writeFileSync(tempPath, manifest);
+
+    const lines = manifest.toString().split('\n');
+    const trimmed = lines.slice(0, lines.length - 10).join('\n')
+    fs.writeFileSync(tempPath, Buffer.from(trimmed));
     log.trace(`Wrote manifest to temp file`);
     fs.renameSync(tempPath, realPath);
     log.trace(`Renamed temp file to actual file`);
@@ -46,4 +49,26 @@ export const getFile = (serverIp: string, serverPort: number, filename: string):
     // We need to request it
     const requester = new RequestHandler(serverIp, serverPort, FOLDER_ROOT, null);
     return requester.requestFile(filename);
+}
+
+export const segmentJob = async (serverIp: string, serverPort: number) => {
+
+    const fileRequester = new RequestHandler(serverIp, serverPort, FOLDER_ROOT, null);
+    const log = new Logger(LOGLEVEL);
+    log.debug(`Running segmentjob`);
+
+    const manifest = await fileRequester.requestManifest();
+    setManifest(manifest);
+
+    let filenames = parseManifest(manifest);
+
+    for (let filename of filenames){
+        if (filename in FILES){
+            if (FILES[filename].status === STATUS.DONT_HAVE){
+                await getFile(serverIp, serverPort, filename);
+            }
+        } else {
+            await getFile(serverIp, serverPort, filename);
+        }
+    }
 }

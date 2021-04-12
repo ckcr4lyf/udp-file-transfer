@@ -2,10 +2,10 @@ import dgram from 'dgram';
 import fs from 'fs';
 import path from 'path';
 import { MESSAGES, STATUS } from './common/constants';
-import { findPeer, replyHandshake, sendHandshake } from './common/handshake';
+import { addPeers, findPeer, replyHandshake, replyPeers, requestPeers, sendHandshake } from './common/handshake';
 import { fileDict, fileMeta, peerInfo } from './common/interfaces';
 import { Logger } from './common/logger';
-import { getFile, parseManifest, sendManifest } from './common/manifest';
+import { getFile, parseManifest, segmentJob, sendManifest } from './common/manifest';
 import UDPHeader from './common/udpHeader';
 import RequestHandler from './request';
 
@@ -21,12 +21,17 @@ const args = process.argv;
 const address = '127.0.0.1';
 export const PORT = parseInt(args[2]);
 export const FOLDER_ROOT = path.join(process.cwd(), args[3]);
-export const LOGLEVEL = 2;
+export const LOGLEVEL = 1;
 const MANIFEST_FILENAME = 'live.m3u8';
 const MANIFEST_POLL_TIME = 3000;
 const mode = args[4];
 
 let manifest: Buffer = Buffer.alloc(0);
+
+export const setManifest = (buffer: Buffer) => {
+    manifest = buffer;
+    log.debug(`Updated manifest in main app`);
+}
 
 export let FILES: fileDict = {};
 export let PEERS: peerInfo[] = [];
@@ -96,6 +101,10 @@ socket.on('message', (message: Buffer, remoteInfo: dgram.RemoteInfo) => {
         } else {
             log.debug(`Received handshake reply from peer already in list (${remoteInfo.address}:${remoteInfo.port})`);
         }
+    } else if (header.messageType === MESSAGES.PEERLIST_REQUEST){
+        replyPeers(socket, remoteInfo, header.messageNumber + 1);
+    } else if (header.messageType === MESSAGES.PEERLIST_RESPONSE){
+        addPeers(message.slice(10));
     } else {
         log.error(`Recevied a non file download request on the listening port. Message Type: ${header.messageType}`);
     }
@@ -127,30 +136,38 @@ if (mode === 'peer' && args.length >= 7){
     sendHandshake(socket, serverIp, serverPort);
 
     // Hardcoded for now
-    const fileToRequest = 'hate0.ts';
-
-    const fileRequester = new RequestHandler(serverIp, serverPort, FOLDER_ROOT, null);
+    // const fileToRequest = 'hate0.ts';
+    // const fileRequester = new RequestHandler(serverIp, serverPort, FOLDER_ROOT, null);
 
     // const result = fileRequester.requestFile(fileToRequest);
-    (async() => {
-        try {
-            manifest = await fileRequester.requestManifest();
-            let filenames = parseManifest(manifest);
-            log.debug(`Updated manifest in main app`);
+    // (async() => {
+    //     try {
+    //         manifest = await fileRequester.requestManifest();
+    //         let filenames = parseManifest(manifest);
+    //         log.debug(`Updated manifest in main app`);
 
-            for (let filename of filenames){
-                if (filename in FILES){
-                    if (FILES[filename].status === STATUS.DONT_HAVE){
-                        await getFile(serverIp, serverPort, filename);
-                    }
-                } else {
-                    await getFile(serverIp, serverPort, filename);
-                }
-            }
-        } catch (e){
-            log.error(`Failed to get manifest.`);
-        }  
-    })();
+    //         for (let filename of filenames){
+    //             if (filename in FILES){
+    //                 if (FILES[filename].status === STATUS.DONT_HAVE){
+    //                     await getFile(serverIp, serverPort, filename);
+    //                 }
+    //             } else {
+    //                 await getFile(serverIp, serverPort, filename);
+    //             }
+    //         }
+    //     } catch (e){
+    //         log.error(`Failed to get manifest.`);
+    //     }  
+    // })();
+
+    setInterval(() => {
+        segmentJob(serverIp, serverPort);
+    }, 3000);
+
+    setTimeout(() => {
+        log.debug(`Going to request peers...`);
+        requestPeers(socket, serverIp, serverPort);
+    }, 5000);
 }
 
 if (mode === 'server'){

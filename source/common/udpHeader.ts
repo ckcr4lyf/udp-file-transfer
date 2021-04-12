@@ -26,6 +26,7 @@ export default class UDPHeader {
         //IDEA - totalPackets (2 byte) represents how many we want in next window?
         // console.log(`ACKS_VALUE is ${this.ACKS_VALUE} and key is ${ACKS[this.ACKS_VALUE]}`);
 
+        // TOTALLY WRONG!!
         const uint32_t = Buffer.alloc(4);
         uint32_t.writeUInt16BE(packetNumber, 0);
         uint32_t.writeUInt16BE(totalPackets, 2);
@@ -62,6 +63,7 @@ export default class UDPHeader {
         return Buffer.from([byte0, byte1]).readUInt16BE();
     }
 
+    // USELESS AND WRONG!
     static portAsTwoUInt16s = (port: number) => {
         const temp = Buffer.alloc(4);
         temp.writeUInt32BE(port);

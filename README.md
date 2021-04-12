@@ -20,7 +20,7 @@ npm run build
 As a VOD:
 
 ```
-ffmpeg -re -i "Source.avi" -c:v libx264 -b:v 500k -c:a aac -ac 2 -b:a 128k -hls_time 4 -hls_list_size 10 live.m3u8
+ffmpeg -re -i "Source.avi" -c:v libx264 -b:v 500k -c:a aac -ac 2 -b:a 128k -hls_time 10 -hls_flags temp_file -hls_list_size 10 live.m3u8
 ffmpeg -i caes.mp4 -c:v copy -c:a copy -hls_time 10 -hls_playlist_type vod -t 100 caes.m3u8
 ```
 
