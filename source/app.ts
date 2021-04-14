@@ -17,7 +17,7 @@ import RequestHandler from './request';
 // node app.js 4444 sendFiles server
 
 const args = process.argv;
-const address = '127.0.0.1';
+const address = '0.0.0.0';
 const MANIFEST_FILENAME = 'live.m3u8';
 const MANIFEST_POLL_TIME = 3000;
 const mode = args[4];
