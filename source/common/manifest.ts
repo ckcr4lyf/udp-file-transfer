@@ -22,7 +22,8 @@ export const parseManifest = (manifest: Buffer) => {
 
     const lines = manifest.toString().split('\n');
     const trimmed = lines.slice(0, lines.length - 10).join('\n')
-    fs.writeFileSync(tempPath, Buffer.from(trimmed));
+    // fs.writeFileSync(tempPath, Buffer.from(trimmed));
+    fs.writeFileSync(tempPath, manifest);
     log.trace(`Wrote manifest to temp file`);
     fs.renameSync(tempPath, realPath);
     log.trace(`Renamed temp file to actual file`);
