@@ -56,13 +56,12 @@ const assignJob = async (job: Job, peer: peerInfo) => {
 
     // Create request handler
     const requestHandler = new RequestHandler(peer.peerAddress, peer.peerPort, FOLDER_ROOT, null);
-    QUEUE_LOG.debug(`Created request handler for ${job.filename} w/ ${peer.peerAddress}:${peer.peerPort}`);
+    QUEUE_LOG.info(`Created request handler for ${job.filename} w/ ${peer.peerAddress}:${peer.peerPort}`);
     job.peersTried.push(peer.hash);
     
     try {
         await requestHandler.requestFile(job.filename);
         QUEUE_LOG.debug(`Downloaded ${job.filename} from ${peer.peerAddress}:${peer.peerPort}`);
-
         peer.status = PEER_STATUS.AVAILABLE;
         FILES[job.filename].status = STATUS.HAVE;
         // Free up the peer, poll for queued jobs
@@ -70,6 +69,8 @@ const assignJob = async (job: Job, peer: peerInfo) => {
     } catch (error){
         QUEUE_LOG.error(`Failed to download segment. Should we try another peer?`)
     }
+
+    requestHandler.socket.close();
 }
 
 const checkJobs = () => {

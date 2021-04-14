@@ -126,7 +126,7 @@ export default class RequestHandler {
         // add it here, and then handle it accordingly.
         // But if we make the request, then we probably dont need this? TBD
         if (request !== null){
-            this.log.info(`Seeding requestHandler with request`);
+            this.log.debug(`Seeding requestHandler with request`);
             this.sendMode = true; // We are now in sending mode. We dont care about message number (reply). TBD
             this.request = request;
             this.handleFileDownload();
@@ -204,18 +204,18 @@ export default class RequestHandler {
         
         if (messageHeader.ACKS_VALUE === ACKS.DOUBLE){
             multiplier = 2;
-            this.log.debug(`Received a DOUBLE ACK! Changed window size to ${this.fileXfer.windowSize * multiplier}`);
+            this.log.trace(`Received a DOUBLE ACK! Changed window size to ${this.fileXfer.windowSize * multiplier}`);
         } else if (messageHeader.ACKS_VALUE === ACKS.STAY){
             // Do nothing
-            this.log.debug(`Received a STAY ACK! Doing nothing...`);
+            this.log.trace(`Received a STAY ACK! Doing nothing...`);
         } else if (messageHeader.ACKS_VALUE === ACKS.HALF){
             
             // Check if it is divisible in the first place
             if (this.fileXfer.windowSize % 2 === 0){
                 multiplier = 0.5;
-                this.log.debug(`Received a HALF ACK! Changed window size to ${this.fileXfer.windowSize * multiplier}`);
+                this.log.trace(`Received a HALF ACK! Changed window size to ${this.fileXfer.windowSize * multiplier}`);
             } else {
-                this.log.debug(`Received a HALF ACK, but window size is odd. Keeping as is.`);
+                this.log.trace(`Received a HALF ACK, but window size is odd. Keeping as is.`);
             }
         }
         
@@ -224,7 +224,7 @@ export default class RequestHandler {
         // If we have less packets to send (end of file) than window size, adjust
         if (this.fileXfer.packetPosition + this.fileXfer.windowSize > this.fileData.totalPackets){
             this.fileXfer.windowSize = (this.fileData.totalPackets - this.fileXfer.packetPosition) + 1;
-            this.log.info(`For last window, changed size to ${this.fileXfer.windowSize}`);
+            this.log.debug(`For last window, changed size to ${this.fileXfer.windowSize}`);
         }
         
         // this.sendWindow(messageHeader, remoteInfo);
@@ -277,7 +277,8 @@ export default class RequestHandler {
             size: -1, // Not needed strictly
         };
         
-        this.log.info(`We have ${fullPackets} full sized packets, and a leftover packet of size ${leftoverSize}`);
+        this.log.debug(`We have ${fullPackets} full sized packets, and a leftover packet of size ${leftoverSize}`);
+        this.log.info(`Starting sending file ${filename} to ${this.peerAddress}:${this.peerPort}`);
         // this.sendWindow(messageHeader, remoteInfo);
         this.sendWindow();
     }
@@ -309,6 +310,10 @@ export default class RequestHandler {
         }
         
         this.fileXfer.packetPosition += this.fileXfer.windowSize;
+
+        if (this.fileXfer.packetPosition === this.fileData.totalPackets + 1){
+            this.log.info(`Finished file transfer of ${this.request?.payload.toString()} to ${this.peerAddress}:${this.peerPort}`);
+        }
     }
     
     // Acting as client
@@ -326,7 +331,6 @@ export default class RequestHandler {
         const messageHeader = new UDPHeader(null, 0x01, 0x01, MESSAGES.FILE_DOWNLOAD_REQUEST, 0x00, filename.length);
         const payload = Buffer.from(filename);
         const packet = Buffer.concat([messageHeader.asBinary(), payload]);
-        this.log.info(`Requesting file ${filename}`);
         
         this.request = {
             header: messageHeader,
@@ -540,7 +544,7 @@ export default class RequestHandler {
             this.recvMessages[i].payload.copy(buffer, filePosition);
             
             if (this.recvMessages[i].payload.length < 1400){
-                this.log.debug(`Min copied is ${this.recvMessages[i].payload.length}`);
+                this.log.trace(`Min copied is ${this.recvMessages[i].payload.length}`);
                 minCopied = this.recvMessages[i].payload.length;
             }
         }
@@ -550,8 +554,7 @@ export default class RequestHandler {
         const finalFileSize = buffer.length - extraBytes;
         const finalFile = buffer.slice(0, finalFileSize);
         const throughput = finalFileSize / timeTaken; // (bytes / milliseconds) = KB/s
-        this.log.info(`Received ${recvRatio * 100}% of the file in ${timeTaken.toFixed(2)}ms. (${throughput.toFixed(2)}KB/s!)`);
-        this.log.debug(`Filename is ${this.request?.payload.toString()}`);
+        this.log.info(`Received ${(recvRatio * 100).toFixed(2)}% of ${this.request?.payload.toString()} in ${timeTaken.toFixed(2)}ms. (${throughput.toFixed(2)}KB/s!)`);
         
         // Write the file to disk
         fs.writeFileSync(path.join(this.folderRoot, this.request?.payload.toString() || 'backup.bin'), finalFile);

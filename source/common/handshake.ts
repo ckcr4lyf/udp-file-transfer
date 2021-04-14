@@ -4,6 +4,7 @@ import path from 'path';
 import { FILES, FOLDER_ROOT, LOGLEVEL, PEERS } from '../app';
 import RequestHandler from '../request';
 import { MESSAGES, PEER_STATUS, STATUS } from './constants';
+import { peerInfo } from './interfaces';
 import { Logger } from './logger';
 import UDPHeader from './udpHeader';
 import { ipPortToHash } from './utilities';
@@ -35,7 +36,7 @@ export const findPeer = (address: string, port: number) => {
 export const requestPeers = (socket: dgram.Socket, peerAddress: string, peerPort: number) => {
     const log = new Logger(LOGLEVEL);
     const header = new UDPHeader(null, 0x01, 0x01, MESSAGES.PEERLIST_REQUEST, 0x00, 0x00);
-    log.debug(`Sending peerlist request to ${peerAddress}:${peerPort}`);
+    log.trace(`Sending peerlist request to ${peerAddress}:${peerPort}`);
     socket.send(header.asBinary(), peerPort, peerAddress);
 }
 
@@ -60,7 +61,7 @@ export const replyPeers = (socket: dgram.Socket, remoteInfo: dgram.RemoteInfo, m
         peerBufs.push(peerBuf);
     }
 
-    log.debug(`Sending ${peerBufs.length} peers in reply to ${remoteInfo.address}:${remoteInfo.port}`);
+    log.trace(`Sending ${peerBufs.length} peers in reply to ${remoteInfo.address}:${remoteInfo.port}`);
     const payload = Buffer.concat(peerBufs);
     const header = new UDPHeader(messageNumber, 0x01, 0x01, MESSAGES.PEERLIST_RESPONSE, 0x00, payload.length);
     const packet = Buffer.concat([header.asBinary(), payload]);
@@ -68,7 +69,6 @@ export const replyPeers = (socket: dgram.Socket, remoteInfo: dgram.RemoteInfo, m
 }
 
 export const addPeers = (payload: Buffer) => {
-
     for (let x = 0; x <= payload.length-6; x+= 6){
         // First 4 bytes are the octets of IP
         let ipOctets = [];
@@ -81,13 +81,25 @@ export const addPeers = (payload: Buffer) => {
         const ip = ipOctets.join('.');
         const port = payload.readUInt16BE(x + 4);
 
-        console.log(`${x} - Found a peer as ${ip}:${port}`);
-        PEERS.push({
+
+        addPeer({
             hash: ipPortToHash(ip, port),
             peerAddress: ip,
             peerPort: port,
             status: PEER_STATUS.AVAILABLE,
         });
     }
-    // console.log(payload);
+}
+
+export const addPeer = (peer: peerInfo) => {
+    const log = new Logger(LOGLEVEL);
+    const exist = PEERS.some(existingPeer => existingPeer.hash === peer.hash);
+
+    if (exist === true){
+        log.trace(`Peer ${peer.peerAddress}:${peer.peerPort} already exists!`);
+        return;
+    }
+
+    PEERS.push(peer);
+    log.info(`Added new peer ${peer.peerAddress}:${peer.peerPort}!`);
 }

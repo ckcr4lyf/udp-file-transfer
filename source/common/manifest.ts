@@ -12,7 +12,7 @@ export const sendManifest = (socket: dgram.Socket, remoteInfo: dgram.RemoteInfo,
     const log = new Logger(LOGLEVEL);
     const header = new UDPHeader(messageNumber, 0x01, 0x01, MESSAGES.MANIFEST_RESPONSE, 0x00, manifest.length);
     const packet = Buffer.concat([header.asBinary(), manifest]);
-    log.debug(`Sending manifest to ${remoteInfo.address}:${remoteInfo.port}`);
+    log.trace(`Sending manifest to ${remoteInfo.address}:${remoteInfo.port}`);
     socket.send(packet, remoteInfo.port, remoteInfo.address);
 }
 
@@ -21,8 +21,6 @@ export const parseManifest = (manifest: Buffer) => {
     const tempPath = path.join(FOLDER_ROOT, 'live.m3u8.tmp');
     const realPath = path.join(FOLDER_ROOT, 'live.m3u8');
 
-    const lines = manifest.toString().split('\n');
-    const trimmed = lines.slice(0, lines.length - 10).join('\n')
     // fs.writeFileSync(tempPath, Buffer.from(trimmed));
     fs.writeFileSync(tempPath, manifest);
     log.trace(`Wrote manifest to temp file`);
@@ -60,26 +58,31 @@ export const getFile = (serverIp: string, serverPort: number, filename: string) 
 }
 
 export const segmentJob = async (serverIp: string, serverPort: number) => {
-
     const fileRequester = new RequestHandler(serverIp, serverPort, FOLDER_ROOT, null);
     const log = new Logger(LOGLEVEL);
 
-    const manifest = await fileRequester.requestManifest();
-    setManifest(manifest);
+    try {
+        const manifest = await fileRequester.requestManifest();
+        setManifest(manifest);
 
-    let filenames = parseManifest(manifest);
+        let filenames = parseManifest(manifest);
 
-    for (let filename of filenames){
-        if (filename in FILES){
-            if (FILES[filename].status === STATUS.DONT_HAVE){
+        for (let filename of filenames){
+            if (filename in FILES){
+                if (FILES[filename].status === STATUS.DONT_HAVE){
+                    await getFile(serverIp, serverPort, filename);
+                    FILES[filename].status = STATUS.QUEUED;
+                }
+            } else {
+                FILES[filename] = {
+                    status: STATUS.QUEUED
+                };
                 await getFile(serverIp, serverPort, filename);
-                FILES[filename].status = STATUS.QUEUED;
             }
-        } else {
-            FILES[filename] = {
-                status: STATUS.QUEUED
-            };
-            await getFile(serverIp, serverPort, filename);
         }
+    } catch (error){
+        log.error(`Failed to get manifest after retry attempts`);
     }
+
+    fileRequester.socket.close();
 }

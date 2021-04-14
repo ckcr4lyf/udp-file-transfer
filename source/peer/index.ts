@@ -89,7 +89,6 @@ export default class Peer {
         const header = new UDPHeader(null, 0x01, 0x01, MESSAGES.FILE_DOWNLOAD_REQUEST, 0x00, filename.length);
         const payload = Buffer.from(filename);
         const packet = Buffer.concat([header.asBinary(), payload]);
-        console.log(`Requesting file ${filename}...`);
 
         // Reset variables
         // this.recvMessages = [];

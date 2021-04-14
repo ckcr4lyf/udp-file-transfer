@@ -2,7 +2,7 @@ import dgram from 'dgram';
 import fs from 'fs';
 import path from 'path';
 import { MESSAGES, PEER_STATUS, STATUS } from './common/constants';
-import { addPeers, findPeer, replyHandshake, replyPeers, requestPeers, sendHandshake } from './common/handshake';
+import { addPeer, addPeers, findPeer, replyHandshake, replyPeers, requestPeers, sendHandshake } from './common/handshake';
 import { fileDict, fileMeta, Job, peerInfo } from './common/interfaces';
 import { Logger } from './common/logger';
 import { getFile, parseManifest, segmentJob, sendManifest } from './common/manifest';
@@ -24,8 +24,8 @@ const mode = args[4];
 
 export const PORT = parseInt(args[2]);
 export const FOLDER_ROOT = path.join(process.cwd(), args[3]);
-export const LOGLEVEL = 1;
-export const QUEUE_LOGLEVEL = 0; // For debugging queue exclusively
+export const LOGLEVEL = 2;
+export const QUEUE_LOGLEVEL = 2; // For debugging queue exclusively
 export const QUEUE_LOG = new Logger(QUEUE_LOGLEVEL);
 
 
@@ -63,14 +63,19 @@ socket.on('error', (socketError: NodeJS.ErrnoException) => {
 /**
  * Only incoming messages to handle (on listening port) rn are:
  * 
- * 1. File Download Request
+ * 1. File Download Request (create handler on new socket)
+ * 2. Manifest request (insta-reply)
+ * 3. Handshake request (insta-reply)
+ * 4. Handshake response (no reply)
+ * 5. Peerlist request (insta-reply)
+ * 6. Peerlist response (no reply)
  */
 
 socket.on('message', (message: Buffer, remoteInfo: dgram.RemoteInfo) => {
 
     // Parse the type out of the UDP header
     const header = UDPHeader.fromBinary(message.slice(0, 10));
-    log.debug(`Received a message from ${remoteInfo.address}:${remoteInfo.port}`);
+    log.trace(`Received a message from ${remoteInfo.address}:${remoteInfo.port}`);
 
     if (header.messageType === MESSAGES.FILE_DOWNLOAD_REQUEST){
 
@@ -84,31 +89,36 @@ socket.on('message', (message: Buffer, remoteInfo: dgram.RemoteInfo) => {
         sendManifest(socket, remoteInfo, manifest, header.messageNumber + 1);
     } else if (header.messageType === MESSAGES.HANDSHAKE_REQUEST){
         replyHandshake(socket, remoteInfo, header.messageNumber + 1);
+
         // If not in peers, add
-        if (findPeer(remoteInfo.address, remoteInfo.port) === undefined){
-            log.info(`Adding new peer ${remoteInfo.address}:${remoteInfo.port} to PEERS!`);
-            PEERS.push({
-                hash: remoteInfoToHash(remoteInfo),
-                peerAddress: remoteInfo.address,
-                peerPort: remoteInfo.port,
-                status: PEER_STATUS.AVAILABLE,
-            });
-        } else {
-            log.debug(`Received handshake from peer already in list (${remoteInfo.address}:${remoteInfo.port})`);
-        }
+        // if (findPeer(remoteInfo.address, remoteInfo.port) === undefined){
+
+        addPeer({
+            hash: remoteInfoToHash(remoteInfo),
+            peerAddress: remoteInfo.address,
+            peerPort: remoteInfo.port,
+            status: PEER_STATUS.AVAILABLE,
+        });
+
+        // } else {
+        //     log.debug(`Received handshake from peer already in list (${remoteInfo.address}:${remoteInfo.port})`);
+        // }
+
     } else if (header.messageType === MESSAGES.HANDSHAKE_RESPONSE){
         // Add to peers
-        if (findPeer(remoteInfo.address, remoteInfo.port) === undefined){
-            log.info(`Adding new peer ${remoteInfo.address}:${remoteInfo.port} to PEERS!`);
-            PEERS.push({
-                hash: remoteInfoToHash(remoteInfo),
-                peerAddress: remoteInfo.address,
-                peerPort: remoteInfo.port,
-                status: PEER_STATUS.AVAILABLE,
-            });
-        } else {
-            log.debug(`Received handshake reply from peer already in list (${remoteInfo.address}:${remoteInfo.port})`);
-        }
+        // if (findPeer(remoteInfo.address, remoteInfo.port) === undefined){
+        //     log.info(`Adding new peer ${remoteInfo.address}:${remoteInfo.port} to PEERS!`);
+
+        addPeer({
+            hash: remoteInfoToHash(remoteInfo),
+            peerAddress: remoteInfo.address,
+            peerPort: remoteInfo.port,
+            status: PEER_STATUS.AVAILABLE,
+        });
+
+        // } else {
+        //     log.debug(`Received handshake reply from peer already in list (${remoteInfo.address}:${remoteInfo.port})`);
+        // }
     } else if (header.messageType === MESSAGES.PEERLIST_REQUEST){
         replyPeers(socket, remoteInfo, header.messageNumber + 1);
     } else if (header.messageType === MESSAGES.PEERLIST_RESPONSE){
@@ -142,6 +152,7 @@ if (mode === 'peer' && args.length >= 7){
 
     // Handshake w/ server
     sendHandshake(socket, serverIp, serverPort);
+    requestPeers(socket, serverIp, serverPort);
 
     // Hardcoded for now
     // const fileToRequest = 'hate0.ts';
@@ -170,10 +181,9 @@ if (mode === 'peer' && args.length >= 7){
 
     setInterval(() => {
         segmentJob(serverIp, serverPort);
-    }, 5000);
+    }, 3000);
 
-    setTimeout(() => {
-        log.debug(`Going to request peers...`);
+    setInterval(() => {
         requestPeers(socket, serverIp, serverPort);
     }, 3000);
 }
