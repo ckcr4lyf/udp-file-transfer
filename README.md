@@ -30,3 +30,10 @@ ffmpeg -i caes.mp4 -c:v copy -c:a copy -hls_time 10 -hls_playlist_type vod -t 10
 ```
 node .\build\app.js 5555 peer2 peer 127.0.0.1 4444
 ```
+
+## To play
+```
+ffplay "http://192.168.1.100:1339/live.m3u8" -live_start_index 0 -window_title "Soure"
+ffplay "http://192.168.1.100:1337/live.m3u8" -live_start_index 0 -window_title "Peer 1"
+ffplay "http://192.168.1.100:1338/live.m3u8" -live_start_index 0 -window_title "Peer 2"
+```
