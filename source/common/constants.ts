@@ -27,5 +27,19 @@ export enum CONSTANTS {
 export enum STATUS {
     HAVE = 0x01,
     DONT_HAVE = 0x02,
+    QUEUED = 0x03,
+    DOWNLOADING = 0x04,
+}
+
+export enum JOB_STATUS {
+    CREATED = 0x01,
+    QUEUED = 0x02,
     DOWNLOADING = 0x03,
+    COMPLETED = 0x04,
+    FAILED = 0x05, // TBD - If this is possible
+}
+
+export enum PEER_STATUS {
+    AVAILABLE = 0x01,
+    BUSY = 0x02,
 }

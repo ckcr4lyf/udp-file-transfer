@@ -178,6 +178,17 @@ export default class RequestHandler {
             this.handleFileResponse(message, messageHeader, remoteInfo);
         }
 
+        if (messageHeader.messageType === MESSAGES.FILE_DOWNLOAD_NOT_FOUND){
+            this.log.warn(`Remote peer did not have file ${this.request.payload.toString()}. Rejecting...`);
+            this.dataResolver.reject();
+
+            if (this.timeout){
+                clearTimeout(this.timeout);
+            }
+
+            //TODO: Can destroy this to free resources?
+        }
+
         if (messageHeader.messageType === MESSAGES.MANIFEST_RESPONSE){
             this.log.trace(`Received manifest`);
             this.handleManifestResponse(message.slice(10, 10 + messageHeader.dataLength));
@@ -236,6 +247,8 @@ export default class RequestHandler {
         
         if (!fs.existsSync(filepath)){
             this.log.error(`File does not exist!`);
+            const header = new UDPHeader(messageHeader.messageNumber + 1, 0x01, 0x01, MESSAGES.FILE_DOWNLOAD_NOT_FOUND, 0x00, 0x00);
+            this.socket.send(header.asBinary(), this.peerPort, this.peerAddress);
             return;
         }
         
@@ -379,7 +392,7 @@ export default class RequestHandler {
         
         // Check if window is full
         if (this.recvWindow.length === this.recvWindowExpected){
-            this.log.debug(`Window of size ${this.recvWindowExpected} is full!`);
+            this.log.trace(`Window of size ${this.recvWindowExpected} is full!`);
             this.recvWindow = []; // Messages are already "saved" in this.recvMessages
             
             let ackHeader: UDPHeader;
@@ -562,7 +575,6 @@ export default class RequestHandler {
     async requestManifest(): Promise<Buffer> {
 
         const header = new UDPHeader(null, 0x01, 0x01, MESSAGES.MANIFEST_REQUEST, 0x00, 0x00);
-        this.log.info(`Requesting manifest`);
 
         this.request = {
             header: header,
@@ -584,7 +596,7 @@ export default class RequestHandler {
     }
 
     handleManifestResponse(manifest: Buffer){
-        this.log.debug(`Received manifest from ${this.peerAddress}:${this.peerPort}`);
+        this.log.trace(`Received manifest from ${this.peerAddress}:${this.peerPort}`);
 
         if (this.timeout !== null){
             clearTimeout(this.timeout);

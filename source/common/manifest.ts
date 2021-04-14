@@ -5,6 +5,7 @@ import { FILES, FOLDER_ROOT, LOGLEVEL, setManifest } from '../app';
 import RequestHandler from '../request';
 import { MESSAGES, STATUS } from './constants';
 import { Logger } from './logger';
+import { addJob } from './queue';
 import UDPHeader from './udpHeader';
 
 export const sendManifest = (socket: dgram.Socket, remoteInfo: dgram.RemoteInfo, manifest: Buffer, messageNumber: number) => {
@@ -30,7 +31,9 @@ export const parseManifest = (manifest: Buffer) => {
     return manifest.toString().split('\n').filter(line => line[0] !== '#');
 }
 
-export const getFile = (serverIp: string, serverPort: number, filename: string): Promise<unknown> => {
+export const getFile = (serverIp: string, serverPort: number, filename: string) => {
+
+    // /: Promise<unknown>
 
     const log = new Logger(LOGLEVEL);
 
@@ -48,15 +51,18 @@ export const getFile = (serverIp: string, serverPort: number, filename: string):
     }
 
     // We need to request it
-    const requester = new RequestHandler(serverIp, serverPort, FOLDER_ROOT, null);
-    return requester.requestFile(filename);
+
+    // QUEUE TIME!
+    addJob(filename);
+
+    // const requester = new RequestHandler(serverIp, serverPort, FOLDER_ROOT, null);
+    // return requester.requestFile(filename);
 }
 
 export const segmentJob = async (serverIp: string, serverPort: number) => {
 
     const fileRequester = new RequestHandler(serverIp, serverPort, FOLDER_ROOT, null);
     const log = new Logger(LOGLEVEL);
-    log.debug(`Running segmentjob`);
 
     const manifest = await fileRequester.requestManifest();
     setManifest(manifest);
@@ -67,8 +73,12 @@ export const segmentJob = async (serverIp: string, serverPort: number) => {
         if (filename in FILES){
             if (FILES[filename].status === STATUS.DONT_HAVE){
                 await getFile(serverIp, serverPort, filename);
+                FILES[filename].status = STATUS.QUEUED;
             }
         } else {
+            FILES[filename] = {
+                status: STATUS.QUEUED
+            };
             await getFile(serverIp, serverPort, filename);
         }
     }

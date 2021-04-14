@@ -1,4 +1,5 @@
-import { STATUS } from "./constants";
+import RequestHandler from "../request";
+import { JOB_STATUS, PEER_STATUS, STATUS } from "./constants";
 import UDPHeader from "./udpHeader";
 
 export interface message {
@@ -41,4 +42,14 @@ export interface peerInfo {
     peerAddress: string,
     peerPort: number,
     hash: string,
+    status: PEER_STATUS,
+}
+
+export interface Job {
+    filename: string,
+    status: JOB_STATUS,
+    resolve?: Function,
+    reject?: Function,
+    peersTried: string[],
+    handler: null | RequestHandler,
 }

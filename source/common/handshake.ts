@@ -3,9 +3,10 @@ import fs from 'fs';
 import path from 'path';
 import { FILES, FOLDER_ROOT, LOGLEVEL, PEERS } from '../app';
 import RequestHandler from '../request';
-import { MESSAGES, STATUS } from './constants';
+import { MESSAGES, PEER_STATUS, STATUS } from './constants';
 import { Logger } from './logger';
 import UDPHeader from './udpHeader';
+import { ipPortToHash } from './utilities';
 
 
 
@@ -67,5 +68,26 @@ export const replyPeers = (socket: dgram.Socket, remoteInfo: dgram.RemoteInfo, m
 }
 
 export const addPeers = (payload: Buffer) => {
-    console.log(payload);
+
+    for (let x = 0; x <= payload.length-6; x+= 6){
+        // First 4 bytes are the octets of IP
+        let ipOctets = [];
+
+        for (let i = 0; i < 4; i++){
+            const numericVal = payload.readUInt8(x + i);
+            ipOctets.push(numericVal.toString());
+        }
+
+        const ip = ipOctets.join('.');
+        const port = payload.readUInt16BE(x + 4);
+
+        console.log(`${x} - Found a peer as ${ip}:${port}`);
+        PEERS.push({
+            hash: ipPortToHash(ip, port),
+            peerAddress: ip,
+            peerPort: port,
+            status: PEER_STATUS.AVAILABLE,
+        });
+    }
+    // console.log(payload);
 }

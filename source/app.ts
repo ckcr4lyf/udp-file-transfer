@@ -1,12 +1,13 @@
 import dgram from 'dgram';
 import fs from 'fs';
 import path from 'path';
-import { MESSAGES, STATUS } from './common/constants';
+import { MESSAGES, PEER_STATUS, STATUS } from './common/constants';
 import { addPeers, findPeer, replyHandshake, replyPeers, requestPeers, sendHandshake } from './common/handshake';
-import { fileDict, fileMeta, peerInfo } from './common/interfaces';
+import { fileDict, fileMeta, Job, peerInfo } from './common/interfaces';
 import { Logger } from './common/logger';
 import { getFile, parseManifest, segmentJob, sendManifest } from './common/manifest';
 import UDPHeader from './common/udpHeader';
+import { remoteInfoToHash } from './common/utilities';
 import RequestHandler from './request';
 
 // To be called as
@@ -15,26 +16,30 @@ import RequestHandler from './request';
 // or
 // node app.js 4444 sendFiles server
 
-const log = new Logger(1);
-
 const args = process.argv;
 const address = '127.0.0.1';
-export const PORT = parseInt(args[2]);
-export const FOLDER_ROOT = path.join(process.cwd(), args[3]);
-export const LOGLEVEL = 2;
 const MANIFEST_FILENAME = 'live.m3u8';
 const MANIFEST_POLL_TIME = 3000;
 const mode = args[4];
 
+export const PORT = parseInt(args[2]);
+export const FOLDER_ROOT = path.join(process.cwd(), args[3]);
+export const LOGLEVEL = 1;
+export const QUEUE_LOGLEVEL = 0; // For debugging queue exclusively
+export const QUEUE_LOG = new Logger(QUEUE_LOGLEVEL);
+
+
+const log = new Logger(LOGLEVEL);
 let manifest: Buffer = Buffer.alloc(0);
 
 export const setManifest = (buffer: Buffer) => {
     manifest = buffer;
-    log.debug(`Updated manifest in main app`);
+    log.trace(`Updated manifest in main app`);
 }
 
 export let FILES: fileDict = {};
 export let PEERS: peerInfo[] = [];
+export let JOBS: Job[] = [];
 
 if (isNaN(PORT)){
     log.error(`Invalid port. Exiting.`);
@@ -74,6 +79,7 @@ socket.on('message', (message: Buffer, remoteInfo: dgram.RemoteInfo) => {
             header: header,
             payload: message.slice(10),
         });
+
     } else if (header.messageType === MESSAGES.MANIFEST_REQUEST){
         sendManifest(socket, remoteInfo, manifest, header.messageNumber + 1);
     } else if (header.messageType === MESSAGES.HANDSHAKE_REQUEST){
@@ -82,9 +88,10 @@ socket.on('message', (message: Buffer, remoteInfo: dgram.RemoteInfo) => {
         if (findPeer(remoteInfo.address, remoteInfo.port) === undefined){
             log.info(`Adding new peer ${remoteInfo.address}:${remoteInfo.port} to PEERS!`);
             PEERS.push({
-                hash: '',
+                hash: remoteInfoToHash(remoteInfo),
                 peerAddress: remoteInfo.address,
                 peerPort: remoteInfo.port,
+                status: PEER_STATUS.AVAILABLE,
             });
         } else {
             log.debug(`Received handshake from peer already in list (${remoteInfo.address}:${remoteInfo.port})`);
@@ -94,9 +101,10 @@ socket.on('message', (message: Buffer, remoteInfo: dgram.RemoteInfo) => {
         if (findPeer(remoteInfo.address, remoteInfo.port) === undefined){
             log.info(`Adding new peer ${remoteInfo.address}:${remoteInfo.port} to PEERS!`);
             PEERS.push({
-                hash: '',
+                hash: remoteInfoToHash(remoteInfo),
                 peerAddress: remoteInfo.address,
                 peerPort: remoteInfo.port,
+                status: PEER_STATUS.AVAILABLE,
             });
         } else {
             log.debug(`Received handshake reply from peer already in list (${remoteInfo.address}:${remoteInfo.port})`);
@@ -162,12 +170,12 @@ if (mode === 'peer' && args.length >= 7){
 
     setInterval(() => {
         segmentJob(serverIp, serverPort);
-    }, 3000);
+    }, 5000);
 
     setTimeout(() => {
         log.debug(`Going to request peers...`);
         requestPeers(socket, serverIp, serverPort);
-    }, 5000);
+    }, 3000);
 }
 
 if (mode === 'server'){

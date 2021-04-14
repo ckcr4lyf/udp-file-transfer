@@ -1,4 +1,6 @@
+import crypto from 'crypto';
 import { performance } from "perf_hooks";
+import dgram from 'dgram';
 
 export const sleep = (ms: number): Promise<void> => {
     return new Promise((resolve, reject) => {
@@ -38,4 +40,18 @@ export class timeInterval {
             return this.getInterval().toFixed(2); //Default is 2
         }
     }
+}
+
+export const remoteInfoToHash = (remoteInfo: dgram.RemoteInfo): string => {
+    const hash = crypto.createHash('sha1');
+    hash.update(remoteInfo.address);
+    hash.update(remoteInfo.port.toString());
+    return hash.digest('hex');
+}
+
+export const ipPortToHash = (ip: string, port: number): string => {
+    const hash = crypto.createHash('sha1');
+    hash.update(ip);
+    hash.update(port.toString());
+    return hash.digest('hex');
 }
