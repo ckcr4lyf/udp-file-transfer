@@ -68,8 +68,9 @@ const assignJob = async (job: Job, peer: peerInfo) => {
         // Free up the peer, poll for queued jobs
         checkJobs();
     } catch (error){
-        QUEUE_LOG.error(`Failed to download segment from ${peer.peerAddress}:${peer.peerPort}. Will re-add to queue.`)
+        QUEUE_LOG.error(`Failed to download ${job.filename} from ${peer.peerAddress}:${peer.peerPort}. Will re-add to queue.`)
         //TODO: Free this peer, try another one.
+        job.status = JOB_STATUS.QUEUED;
         peer.status = PEER_STATUS.AVAILABLE;
         addJob(job.filename, job);
         // Check the other jobs as well
