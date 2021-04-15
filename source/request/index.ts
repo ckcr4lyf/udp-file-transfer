@@ -477,7 +477,16 @@ export default class RequestHandler {
                 // Prolly request / ACK lost.
                 // TODO: handle this.
                 this.log.warn(`Receive window was empty at the timeout (No packets received)`);
-                return;
+
+                // If the first request itself had no response
+                // as bads as file not found (maybe worse - peer cannot accept incoming)
+                // reject it
+                if (this.recvMessages.length === 0){
+                    this.log.error(`Actually, this peer gave nothing. Rejecting...`);
+                    return this.dataResolver.reject();
+                } else {
+                    return;
+                }
             }
             
             const remainingWindow = this.recvWindowExpected - this.recvWindow.length;

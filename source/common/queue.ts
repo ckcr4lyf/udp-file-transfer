@@ -35,6 +35,7 @@ export const addJob = (filename: string, seedjob: Job | null = null) => {
 
     if (availablePeers.length === 0){
         QUEUE_LOG.warn(`No peers available. Going to leave job for ${filename} in queue.`);
+        // At this point, should we re-run the queue?
         return;
     }
 
@@ -67,14 +68,18 @@ const assignJob = async (job: Job, peer: peerInfo) => {
         // Free up the peer, poll for queued jobs
         checkJobs();
     } catch (error){
-        QUEUE_LOG.error(`Failed to download segment. Should we try another peer?`)
+        QUEUE_LOG.error(`Failed to download segment from ${peer.peerAddress}:${peer.peerPort}. Will re-add to queue.`)
+        //TODO: Free this peer, try another one.
+        peer.status = PEER_STATUS.AVAILABLE;
+        addJob(job.filename, job);
+        // Check the other jobs as well
+        checkJobs();
     }
 
     requestHandler.socket.close();
 }
 
 const checkJobs = () => {
-
     for (let x = 0; x < JOBS.length; x++){
         if (JOBS[x].status === JOB_STATUS.QUEUED){
             QUEUE_LOG.debug(`Found a job in queue on poll! Trying to add...`);
