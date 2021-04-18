@@ -4,7 +4,7 @@
 Prepare ffmpeg stream:
 
 ```
-ffmpeg -re -i "caes.mp4" -c:v libx264 -b:v 1000k -preset veryfast -force_key_frames "expr:gte(t,n_forced*2)" -c:a aac -ac 2 -b:a 128k -hls_time 10 -hls_flags temp_file -hls_list_size 10 live.m3u8
+ffmpeg -re -i "input.mp4" -c:v libx264 -b:v 1000k -preset slower -force_key_frames "expr:gte(t,n_forced*2)" -c:a aac -ac 2 -b:a 128k -hls_time 10 -hls_flags temp_file -hls_list_size 10 live.m3u8
 ```
 
 Start server (initial seed)
